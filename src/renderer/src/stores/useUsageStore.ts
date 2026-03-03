@@ -18,7 +18,7 @@ interface UsageState {
   fetchUsage: () => Promise<void>
 }
 
-const DEBOUNCE_MS = 30_000
+const DEBOUNCE_MS = 180_000 // 3 minutes
 
 export const useUsageStore = create<UsageState>()((set, get) => ({
   usage: null,
