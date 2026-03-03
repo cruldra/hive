@@ -373,8 +373,7 @@ function emitFileTreeChange(worktreePath: string, eventType: FileEventType, chan
     try {
       const bus = getEventBus()
       for (const evt of events) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        bus.emit('file-tree:change', { worktreePath, ...evt } as any)
+        bus.emit('file-tree:change', { worktreePath, ...evt })
       }
     } catch { /* EventBus not available */ }
   }, 100)
