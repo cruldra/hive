@@ -175,7 +175,17 @@ async function loadSettingsFromDatabase(): Promise<AppSettings | null> {
     if (typeof window !== 'undefined' && window.db?.setting) {
       const value = await window.db.setting.get(APP_SETTINGS_DB_KEY)
       if (value) {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(value) }
+        const parsed = JSON.parse(value)
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          // Deep-merge commandFilter so new fields (e.g. `enabled`) always have defaults
+          // even for users whose saved settings pre-date those fields being added.
+          commandFilter: {
+            ...DEFAULT_SETTINGS.commandFilter,
+            ...(parsed.commandFilter || {})
+          }
+        }
       }
     }
   } catch (error) {

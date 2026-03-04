@@ -9,13 +9,40 @@ export interface CommandFilterSettings {
   enabled: boolean
 }
 
+export interface SubCommandSuggestions {
+  subCommand: string
+  patterns: string[]
+}
+
 /**
  * Service for evaluating tool uses against allowlist/blocklist patterns
  * with wildcard support (* and **)
+ *
+ * For bash commands, the service splits on && / || / ; and evaluates
+ * each sub-command independently so patterns like "bash: npm *" match
+ * any combination of commands including npm.
  */
 export class CommandFilterService {
   /**
-   * Evaluate a tool use and determine if it should be allowed, blocked, or require approval
+   * Split a bash command chain into individual sub-commands.
+   * Splits on ` && `, ` || `, `| ` (pipe), and `; ` (space-delimited to avoid
+   * splitting inside quoted strings or URLs).
+   * Note: `||` is matched before `|` so the OR operator is not mis-split as two pipes.
+   */
+  splitBashChain(command: string): string[] {
+    return command
+      .split(/\s+&&\s+|\s+\|\|\s+|\s+\|\s+|\s*;\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+
+  /**
+   * Evaluate a tool use and determine if it should be allowed, blocked, or require approval.
+   *
+   * For bash: splits by && and evaluates each sub-command independently.
+   *   - Block wins: if ANY sub-command matches the blocklist → block
+   *   - Allow: ALL sub-commands must match the allowlist
+   *   - Otherwise: default behavior
    */
   evaluateToolUse(
     toolName: string,
@@ -26,6 +53,43 @@ export class CommandFilterService {
       return 'allow'
     }
 
+    const tool = toolName.toLowerCase()
+
+    if (tool === 'bash') {
+      const command = String(input.command || '').trim()
+      const subCommands = this.splitBashChain(command)
+
+      log.info('CommandFilter: evaluating bash chain', {
+        subCommands,
+        allowlistCount: settings.allowlist.length,
+        blocklistCount: settings.blocklist.length
+      })
+
+      // Blocklist wins: if ANY sub-command is blocked, block the entire chain
+      for (const sub of subCommands) {
+        const subStr = `bash: ${sub}`
+        if (this.matchesAnyPattern(subStr, settings.blocklist)) {
+          log.info('CommandFilter: BLOCKED by blocklist', { subStr })
+          return 'block'
+        }
+      }
+
+      // Allowlist: ALL sub-commands must be covered
+      if (
+        subCommands.length > 0 &&
+        subCommands.every((sub) => this.matchesAnyPattern(`bash: ${sub}`, settings.allowlist))
+      ) {
+        log.info('CommandFilter: all sub-commands allowed by allowlist', { subCommands })
+        return 'allow'
+      }
+
+      log.info('CommandFilter: bash chain not fully covered, using default', {
+        defaultBehavior: settings.defaultBehavior
+      })
+      return settings.defaultBehavior
+    }
+
+    // Non-bash tools: check the full command string
     const commandStr = this.formatCommandString(toolName, input)
 
     log.info('CommandFilter: evaluating tool use', {
@@ -37,19 +101,16 @@ export class CommandFilterService {
       enabled: settings.enabled
     })
 
-    // Check blocklist first (highest priority — security rules always win)
     if (this.matchesAnyPattern(commandStr, settings.blocklist)) {
       log.info('CommandFilter: BLOCKED by blocklist', { commandStr })
       return 'block'
     }
 
-    // Check allowlist second
     if (this.matchesAnyPattern(commandStr, settings.allowlist)) {
       log.info('CommandFilter: allowed by allowlist', { commandStr })
       return 'allow'
     }
 
-    // Not on either list - use default behavior
     log.info('CommandFilter: no match, using default behavior', {
       commandStr,
       defaultBehavior: settings.defaultBehavior
@@ -160,9 +221,10 @@ export class CommandFilterService {
    * Generate pattern suggestions at varying granularity levels for a tool use.
    * Returns patterns from most specific (exact match) to most broad.
    *
-   * For bash commands: splits by words and progressively replaces tail with wildcard
-   * For file tools: generates filename and extension patterns
-   * For other tools: returns the exact command string
+   * For bash commands with &&: returns a flat list of per-sub-command patterns (no && in patterns).
+   * For bash single command: splits by words and progressively replaces tail with wildcard.
+   * For file tools: generates filename and extension patterns.
+   * For other tools: returns the exact command string.
    */
   generatePatternSuggestions(toolName: string, input: Record<string, unknown>): string[] {
     const commandStr = this.formatCommandString(toolName, input)
@@ -181,10 +243,34 @@ export class CommandFilterService {
   }
 
   /**
-   * Generate progressive bash command pattern suggestions
+   * Generate structured per-sub-command pattern suggestions for bash && chains.
+   * Returns null for non-bash tools or single commands (use generatePatternSuggestions instead).
+   *
+   * Each entry has the original sub-command text and a list of patterns at varying granularity.
    */
-  private generateBashSuggestions(commandStr: string): string[] {
-    // commandStr format: "bash: some command args"
+  generateSubCommandSuggestions(
+    toolName: string,
+    input: Record<string, unknown>
+  ): SubCommandSuggestions[] | null {
+    if (toolName.toLowerCase() !== 'bash') return null
+
+    const command = String(input.command || '').trim()
+    if (!command) return null
+
+    const subCommands = this.splitBashChain(command)
+    if (subCommands.length <= 1) return null
+
+    return subCommands.map((sub) => ({
+      subCommand: sub,
+      patterns: this.generateSingleCommandSuggestions(`bash: ${sub}`)
+    }))
+  }
+
+  /**
+   * Generate progressive bash command pattern suggestions for a SINGLE command (no &&).
+   * Used internally by both generateBashSuggestions and generateSubCommandSuggestions.
+   */
+  private generateSingleCommandSuggestions(commandStr: string): string[] {
     const prefix = 'bash: '
     if (!commandStr.startsWith(prefix)) return [commandStr]
 
@@ -200,12 +286,42 @@ export class CommandFilterService {
     // e.g. "gcloud compute list --project x" → "gcloud compute list *" → "gcloud compute *" → "gcloud *"
     for (let i = parts.length - 1; i >= 1; i--) {
       const pattern = `${prefix}${parts.slice(0, i).join(' ')} *`
-      // Avoid duplicates
       if (!suggestions.includes(pattern)) {
         suggestions.push(pattern)
       }
     }
 
+    return suggestions
+  }
+
+  /**
+   * Generate progressive bash command pattern suggestions.
+   * For && chains: returns flat list of per-sub-command suggestions (no && in patterns).
+   * For single commands: same word-trimming approach as before.
+   */
+  private generateBashSuggestions(commandStr: string): string[] {
+    const prefix = 'bash: '
+    if (!commandStr.startsWith(prefix)) return [commandStr]
+
+    const fullCommand = commandStr.slice(prefix.length).trim()
+    const subCommands = this.splitBashChain(fullCommand)
+
+    if (subCommands.length <= 1) {
+      // Single command: existing word-trimming approach
+      return this.generateSingleCommandSuggestions(commandStr)
+    }
+
+    // Multiple sub-commands: generate suggestions for each sub-command independently
+    // (no && in any pattern — each sub-command is matched individually in evaluateToolUse)
+    const suggestions: string[] = []
+    for (const sub of subCommands) {
+      const subSuggestions = this.generateSingleCommandSuggestions(`${prefix}${sub}`)
+      for (const pattern of subSuggestions) {
+        if (!suggestions.includes(pattern)) {
+          suggestions.push(pattern)
+        }
+      }
+    }
     return suggestions
   }
 

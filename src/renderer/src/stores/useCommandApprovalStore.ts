@@ -1,5 +1,10 @@
 import { create } from 'zustand'
 
+export interface SubCommandSuggestions {
+  subCommand: string
+  patterns: string[]
+}
+
 export interface CommandApprovalRequest {
   id: string
   sessionID: string
@@ -7,6 +12,8 @@ export interface CommandApprovalRequest {
   commandStr: string
   input: Record<string, unknown>
   patternSuggestions: string[]
+  /** Present for bash commands with && chains: per-sub-command pattern suggestions */
+  subCommandPatterns?: SubCommandSuggestions[]
   tool?: {
     messageID: string
     callID: string

@@ -151,7 +151,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
   private pendingApprovals = new Map<
     string,
     {
-      resolve: (response: { approved: boolean; remember?: 'allow' | 'block' }) => void
+      resolve: (response: {
+        approved: boolean
+        remember?: 'allow' | 'block'
+        pattern?: string
+        patterns?: string[]
+      }) => void
       toolName: string
       input: Record<string, unknown>
       commandStr: string
@@ -1986,6 +1991,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       toolName,
       input
     )
+    const subCommandPatterns = this.commandFilterService.generateSubCommandSuggestions(
+      toolName,
+      input
+    )
 
     const approvalRequest = {
       id: requestId,
@@ -1994,6 +2003,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       commandStr,
       input,
       patternSuggestions,
+      subCommandPatterns: subCommandPatterns ?? undefined,
       tool: { messageID: `msg-${Date.now()}`, callID: options.toolUseID }
     }
 
@@ -2009,6 +2019,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       approved: boolean
       remember?: 'allow' | 'block'
       pattern?: string
+      patterns?: string[]
     }>((resolve) => {
       this.pendingApprovals.set(requestId, {
         resolve: (response) => resolve(response),
@@ -2033,10 +2044,18 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     // Clean up tracking state
     this.pendingApprovals.delete(requestId)
 
-    // Handle "remember" choice - update settings with user-selected pattern
+    // Handle "remember" choice - update settings with user-selected pattern(s)
     if (userResponse.remember) {
-      const patternToSave = userResponse.pattern || commandStr
-      await this.updateCommandFilter(patternToSave, userResponse.remember)
+      if (userResponse.patterns && userResponse.patterns.length > 0) {
+        // Multi-pattern (per sub-command "Allow always")
+        for (const p of userResponse.patterns) {
+          await this.updateCommandFilter(p, userResponse.remember)
+        }
+      } else {
+        // Single pattern or fallback to full command string
+        const patternToSave = userResponse.pattern || commandStr
+        await this.updateCommandFilter(patternToSave, userResponse.remember)
+      }
     }
 
     if (!userResponse.approved) {
@@ -2078,11 +2097,14 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       }
 
       const settings = JSON.parse(settingsJson)
-      const filterSettings = settings.commandFilter || {
+      // Deep-merge so new fields (e.g. `enabled`) always have defaults even for
+      // users whose saved settings pre-date those fields being added.
+      const filterSettings: CommandFilterSettings = {
         allowlist: [],
         blocklist: [],
         defaultBehavior: 'ask',
-        enabled: false
+        enabled: false,
+        ...(settings.commandFilter || {})
       }
 
       log.info('getCommandFilterSettings: loaded from DB', {
@@ -2155,7 +2177,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     requestId: string,
     approved: boolean,
     remember?: 'allow' | 'block',
-    pattern?: string
+    pattern?: string,
+    patterns?: string[]
   ): void {
     const pendingApproval = this.pendingApprovals.get(requestId)
     if (!pendingApproval) {
@@ -2163,8 +2186,14 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       return
     }
 
-    log.info('handleApprovalReply: user responded', { requestId, approved, remember, pattern })
-    pendingApproval.resolve({ approved, remember, pattern })
+    log.info('handleApprovalReply: user responded', {
+      requestId,
+      approved,
+      remember,
+      pattern,
+      patterns
+    })
+    pendingApproval.resolve({ approved, remember, pattern, patterns })
   }
 
   private emitStatus(

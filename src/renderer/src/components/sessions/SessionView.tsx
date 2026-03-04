@@ -34,6 +34,7 @@ import type { SelectedModel } from '@/stores/useSettingsStore'
 import { useQuestionStore } from '@/stores/useQuestionStore'
 import { usePermissionStore } from '@/stores/usePermissionStore'
 import { useCommandApprovalStore } from '@/stores/useCommandApprovalStore'
+import { checkAutoApprove } from '@/lib/permissionUtils'
 import { usePromptHistoryStore } from '@/stores/usePromptHistoryStore'
 import { useWorktreeStore } from '@/stores'
 import { useProjectStore } from '@/stores/useProjectStore'
@@ -1285,6 +1286,19 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           if (event.type === 'permission.asked') {
             const request = event.data
             if (request?.id && request?.permission) {
+              const { commandFilter } = useSettingsStore.getState()
+              // Security globally off OR all sub-patterns in commandFilter allowlist → auto-approve
+              if (
+                !commandFilter.enabled ||
+                checkAutoApprove(request as PermissionRequest, commandFilter.allowlist)
+              ) {
+                window.opencodeOps
+                  .permissionReply(request.id, 'once', worktreePath || undefined)
+                  .catch((err: unknown) => {
+                    console.warn('Auto-approve permissionReply failed:', err)
+                  })
+                return
+              }
               usePermissionStore.getState().addPermission(sessionId, request)
             }
             return
@@ -2465,13 +2479,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     [worktreePath]
   )
 
-  // Handle command approval reply (approve/deny with optional remember + pattern)
+  // Handle command approval reply (approve/deny with optional remember + pattern/patterns)
   const handleCommandApprovalReply = useCallback(
     async (
       requestId: string,
       approved: boolean,
       remember?: 'allow' | 'block',
-      pattern?: string
+      pattern?: string,
+      patterns?: string[]
     ) => {
       try {
         await window.opencodeOps.commandApprovalReply(
@@ -2479,7 +2494,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           approved,
           remember,
           pattern,
-          worktreePath || undefined
+          worktreePath || undefined,
+          patterns
         )
         // Remove from store after sending reply
         useCommandApprovalStore.getState().removeApproval(sessionId, requestId)

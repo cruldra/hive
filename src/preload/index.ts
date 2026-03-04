@@ -1135,14 +1135,16 @@ const opencodeOps = {
     approved: boolean,
     remember?: 'allow' | 'block',
     pattern?: string,
-    worktreePath?: string
+    worktreePath?: string,
+    patterns?: string[]
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('opencode:commandApprovalReply', {
       requestId,
       approved,
       remember,
       pattern,
-      worktreePath
+      worktreePath,
+      patterns
     }),
 
   // Get session info (revert state)

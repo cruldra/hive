@@ -6,14 +6,24 @@ import { Button } from '@/components/ui/button'
 import { toast } from '@/lib/toast'
 
 export function SettingsSecurity(): React.JSX.Element {
-  const { commandFilter, updateSetting } = useSettingsStore()
+  const { commandFilter: rawCommandFilter, updateSetting } = useSettingsStore()
   const [newPattern, setNewPattern] = useState('')
   const [activeTab, setActiveTab] = useState<'allowlist' | 'blocklist'>('allowlist')
+
+  // Defensive null-guard: commandFilter may be undefined on first hydration from old localStorage
+  const commandFilter = rawCommandFilter ?? {
+    enabled: true,
+    defaultBehavior: 'ask' as const,
+    allowlist: [],
+    blocklist: []
+  }
+
+  const isEnabled = commandFilter.enabled ?? true
 
   const handleToggleEnabled = () => {
     updateSetting('commandFilter', {
       ...commandFilter,
-      enabled: !commandFilter.enabled
+      enabled: !isEnabled
     })
   }
 
@@ -65,7 +75,7 @@ export function SettingsSecurity(): React.JSX.Element {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ overflow: 'hidden' }}>
       <div>
         <h3 className="text-base font-medium mb-1">Security</h3>
         <p className="text-sm text-muted-foreground">Control which commands Claude can execute</p>
@@ -81,25 +91,41 @@ export function SettingsSecurity(): React.JSX.Element {
         </div>
         <button
           role="switch"
-          aria-checked={commandFilter.enabled}
+          aria-checked={isEnabled}
           onClick={handleToggleEnabled}
-          className={cn(
-            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-            commandFilter.enabled ? 'bg-primary' : 'bg-muted'
-          )}
+          style={{
+            position: 'relative',
+            display: 'inline-flex',
+            alignItems: 'center',
+            height: '24px',
+            width: '44px',
+            flexShrink: 0,
+            cursor: 'pointer',
+            borderRadius: '9999px',
+            border: 'none',
+            backgroundColor: isEnabled ? '#059669' : '#52525b',
+            transition: 'background-color 200ms'
+          }}
           data-testid="command-filter-toggle"
         >
           <span
-            className={cn(
-              'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
-              commandFilter.enabled ? 'translate-x-4' : 'translate-x-0'
-            )}
+            style={{
+              pointerEvents: 'none',
+              display: 'block',
+              height: '18px',
+              width: '18px',
+              borderRadius: '9999px',
+              backgroundColor: '#ffffff',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+              transition: 'transform 200ms',
+              transform: isEnabled ? 'translateX(23px)' : 'translateX(3px)'
+            }}
           />
         </button>
       </div>
 
       {/* Default Behavior */}
-      <div className={cn('space-y-2', !commandFilter.enabled && 'opacity-50 pointer-events-none')}>
+      <div className={cn('space-y-2', !isEnabled && 'opacity-50 pointer-events-none')}>
         <label className="text-sm font-medium">Default behavior for unlisted commands</label>
         <p className="text-xs text-muted-foreground">
           How to handle commands not on either list
@@ -107,7 +133,7 @@ export function SettingsSecurity(): React.JSX.Element {
         <div className="flex gap-2">
           <button
             onClick={() => handleSetDefaultBehavior('ask')}
-            disabled={!commandFilter.enabled}
+            disabled={!isEnabled}
             className={cn(
               'px-3 py-1.5 rounded-md text-sm border transition-colors',
               commandFilter.defaultBehavior === 'ask'
@@ -120,7 +146,7 @@ export function SettingsSecurity(): React.JSX.Element {
           </button>
           <button
             onClick={() => handleSetDefaultBehavior('allow')}
-            disabled={!commandFilter.enabled}
+            disabled={!isEnabled}
             className={cn(
               'px-3 py-1.5 rounded-md text-sm border transition-colors',
               commandFilter.defaultBehavior === 'allow'
@@ -133,7 +159,7 @@ export function SettingsSecurity(): React.JSX.Element {
           </button>
           <button
             onClick={() => handleSetDefaultBehavior('block')}
-            disabled={!commandFilter.enabled}
+            disabled={!isEnabled}
             className={cn(
               'px-3 py-1.5 rounded-md text-sm border transition-colors',
               commandFilter.defaultBehavior === 'block'
@@ -151,7 +177,7 @@ export function SettingsSecurity(): React.JSX.Element {
       <div
         className={cn(
           'rounded-md border border-border bg-muted/30 p-3',
-          !commandFilter.enabled && 'opacity-50'
+          !isEnabled && 'opacity-50'
         )}
       >
         <div className="flex gap-2">
@@ -184,7 +210,7 @@ export function SettingsSecurity(): React.JSX.Element {
       <div
         className={cn(
           'rounded-md border border-border bg-muted/30 p-3',
-          !commandFilter.enabled && 'opacity-50'
+          !isEnabled && 'opacity-50'
         )}
       >
         <p className="text-xs text-muted-foreground">
@@ -194,11 +220,11 @@ export function SettingsSecurity(): React.JSX.Element {
       </div>
 
       {/* Tabs */}
-      <div className={cn('space-y-3', !commandFilter.enabled && 'opacity-50 pointer-events-none')}>
+      <div className={cn('space-y-3', !isEnabled && 'opacity-50 pointer-events-none')}>
         <div className="flex gap-2 border-b border-border">
           <button
             onClick={() => setActiveTab('allowlist')}
-            disabled={!commandFilter.enabled}
+            disabled={!isEnabled}
             className={cn(
               'px-3 py-1.5 text-sm font-medium transition-colors border-b-2',
               activeTab === 'allowlist'
@@ -210,7 +236,7 @@ export function SettingsSecurity(): React.JSX.Element {
           </button>
           <button
             onClick={() => setActiveTab('blocklist')}
-            disabled={!commandFilter.enabled}
+            disabled={!isEnabled}
             className={cn(
               'px-3 py-1.5 text-sm font-medium transition-colors border-b-2',
               activeTab === 'blocklist'
@@ -223,29 +249,31 @@ export function SettingsSecurity(): React.JSX.Element {
         </div>
 
         {/* Add pattern input */}
-        <div className="flex gap-2">
+        <div style={{ display: 'flex', gap: '8px', overflow: 'hidden' }}>
           <input
             type="text"
             value={newPattern}
             onChange={(e) => setNewPattern(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && commandFilter.enabled) {
+              if (e.key === 'Enter' && isEnabled) {
                 handleAddPattern()
               }
             }}
-            disabled={!commandFilter.enabled}
+            disabled={!isEnabled}
             placeholder={
               activeTab === 'allowlist'
                 ? 'e.g., bash: git status or read: src/**'
                 : 'e.g., bash: rm -rf * or edit: .env'
             }
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-border bg-background"
+            style={{ flex: '1 1 0', minWidth: 0 }}
+            className="px-3 py-1.5 text-sm rounded-md border border-border bg-background"
             data-testid="pattern-input"
           />
           <Button
             size="sm"
+            className="shrink-0"
             onClick={handleAddPattern}
-            disabled={!newPattern.trim() || !commandFilter.enabled}
+            disabled={!newPattern.trim() || !isEnabled}
             data-testid="add-pattern-button"
           >
             <Plus className="h-3.5 w-3.5 mr-1" />
@@ -254,7 +282,7 @@ export function SettingsSecurity(): React.JSX.Element {
         </div>
 
         {/* Pattern list with scrolling */}
-        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+        <div className="space-y-2 max-h-48 overflow-y-auto" style={{ overflowX: 'hidden' }}>
           {activeTab === 'allowlist' && commandFilter.allowlist.length === 0 && (
             <div className="text-xs text-muted-foreground text-center py-4">
               No patterns in allowlist. Commands will follow the default behavior.
@@ -269,13 +297,20 @@ export function SettingsSecurity(): React.JSX.Element {
             commandFilter.allowlist.map((pattern) => (
               <div
                 key={pattern}
-                className="flex items-center justify-between px-3 py-2 rounded-md border border-border bg-muted/30"
+                className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/30"
+                style={{ overflow: 'hidden' }}
               >
-                <code className="text-xs font-mono">{pattern}</code>
+                <code
+                  className="text-xs font-mono"
+                  style={{ flex: '1 1 0', minWidth: 0, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}
+                  title={pattern}
+                >
+                  {pattern}
+                </code>
                 <button
                   onClick={() => handleRemovePattern(pattern, 'allowlist')}
-                  disabled={!commandFilter.enabled}
-                  className="text-destructive hover:text-destructive/80 transition-colors"
+                  disabled={!isEnabled}
+                  className="shrink-0 text-destructive hover:text-destructive/80 transition-colors"
                   title="Remove pattern"
                   data-testid="remove-allowlist-pattern"
                 >
@@ -287,13 +322,20 @@ export function SettingsSecurity(): React.JSX.Element {
             commandFilter.blocklist.map((pattern) => (
               <div
                 key={pattern}
-                className="flex items-center justify-between px-3 py-2 rounded-md border border-border bg-muted/30"
+                className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/30"
+                style={{ overflow: 'hidden' }}
               >
-                <code className="text-xs font-mono">{pattern}</code>
+                <code
+                  className="text-xs font-mono"
+                  style={{ flex: '1 1 0', minWidth: 0, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}
+                  title={pattern}
+                >
+                  {pattern}
+                </code>
                 <button
                   onClick={() => handleRemovePattern(pattern, 'blocklist')}
-                  disabled={!commandFilter.enabled}
-                  className="text-destructive hover:text-destructive/80 transition-colors"
+                  disabled={!isEnabled}
+                  className="shrink-0 text-destructive hover:text-destructive/80 transition-colors"
                   title="Remove pattern"
                   data-testid="remove-blocklist-pattern"
                 >
