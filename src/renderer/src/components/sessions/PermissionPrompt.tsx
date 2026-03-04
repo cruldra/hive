@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react'
-import { Shield, Terminal, FileEdit, Eye, Search, Globe } from 'lucide-react'
+import { Shield, Terminal, FileEdit, Eye, Search, Globe, CheckCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { splitBashCommand, getSubPatterns, patternMatches } from '@/lib/permissionUtils'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 
 interface PermissionPromptProps {
   request: PermissionRequest
@@ -36,8 +38,79 @@ function getPermissionDisplay(permission: string): {
   }
 }
 
+/**
+ * Render a bash command pattern, splitting on && / || / ; into labelled sub-rows.
+ * Sub-commands already approved in commandFilter.allowlist get a green checkmark indicator.
+ */
+function BashPatternView({
+  pattern,
+  commandFilterAllowlist
+}: {
+  pattern: string
+  commandFilterAllowlist: string[]
+}) {
+  const parts = splitBashCommand(pattern)
+
+  const isSubApproved = (sub: string): boolean => {
+    const prefixed = `bash: ${sub}`
+    return commandFilterAllowlist.some((a) => patternMatches(prefixed, a))
+  }
+
+  if (parts.length <= 1) {
+    // Single command — plain display
+    const single = parts[0] ?? pattern
+    return (
+      <div className="flex items-start gap-1.5">
+        <div className="text-xs font-mono px-2 py-1.5 rounded bg-muted/50 text-foreground break-all flex-1">
+          {single}
+        </div>
+        {isSubApproved(single) && (
+          <CheckCircle className="h-3.5 w-3.5 text-green-500 mt-1.5 shrink-0" />
+        )}
+      </div>
+    )
+  }
+
+  // Determine the separator tokens from original string
+  const separators: string[] = []
+  let remainder = pattern
+  for (let i = 0; i < parts.length - 1; i++) {
+    const after = remainder.slice(parts[i].length)
+    const m = after.match(/^\s*(&&|\|\||;)\s*/)
+    separators.push(m ? m[1] : '&&')
+    remainder = after.slice(m ? m[0].length : 4)
+  }
+
+  return (
+    <div className="space-y-0.5">
+      {parts.map((part, idx) => (
+        <div key={idx}>
+          <div className="flex items-start gap-1.5">
+            <div className="text-xs font-mono px-2 py-1.5 rounded bg-muted/50 text-foreground break-all flex-1">
+              {part}
+            </div>
+            {isSubApproved(part) && (
+              <CheckCircle className="h-3.5 w-3.5 text-green-500 mt-1.5 shrink-0" />
+            )}
+          </div>
+          {idx < parts.length - 1 && (
+            <div className="flex items-center gap-1 px-2 py-0.5">
+              <div className="h-px flex-1 bg-border/50" />
+              <span className="text-[10px] font-mono text-muted-foreground/60 px-1">
+                {separators[idx]}
+              </span>
+              <div className="h-px flex-1 bg-border/50" />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
   const [sending, setSending] = useState(false)
+  const { commandFilter, updateSetting } = useSettingsStore()
 
   const { icon: Icon, label, color } = getPermissionDisplay(request.permission)
 
@@ -45,9 +118,24 @@ export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
     (type: 'once' | 'always') => {
       if (sending) return
       setSending(true)
+      if (type === 'always') {
+        // Save sub-patterns to the persistent commandFilter allowlist immediately
+        // so that future identical or matching commands are auto-approved without UI
+        const subPatterns = getSubPatterns(request) // already prefixed e.g. "bash: git add ."
+        if (subPatterns.length > 0) {
+          const current = commandFilter.allowlist
+          const toAdd = subPatterns.filter((p) => !current.includes(p))
+          if (toAdd.length > 0) {
+            updateSetting('commandFilter', {
+              ...commandFilter,
+              allowlist: [...current, ...toAdd]
+            })
+          }
+        }
+      }
       onReply(request.id, type)
     },
-    [sending, onReply, request.id]
+    [sending, onReply, request, commandFilter, updateSetting]
   )
 
   const handleDeny = useCallback(() => {
@@ -74,19 +162,32 @@ export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
         {/* Contextual info based on permission type */}
         <div className="mb-3">
           {request.patterns.length > 0 && (
-            <div className="space-y-1">
-              {request.patterns.map((pattern, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    'text-xs font-mono px-2 py-1.5 rounded',
-                    'bg-muted/50 text-foreground',
-                    'break-all'
-                  )}
-                >
-                  {pattern}
-                </div>
-              ))}
+            // Scrollable container: caps height so long patterns don't overflow the dialog
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {request.permission === 'bash' ? (
+                // Bash: split each pattern by && / || / ; with visual separators
+                request.patterns.map((pattern, i) => (
+                  <BashPatternView
+                    key={i}
+                    pattern={pattern}
+                    commandFilterAllowlist={commandFilter.allowlist}
+                  />
+                ))
+              ) : (
+                // Other permissions: plain pattern list
+                request.patterns.map((pattern, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      'text-xs font-mono px-2 py-1.5 rounded',
+                      'bg-muted/50 text-foreground',
+                      'break-all'
+                    )}
+                  >
+                    {pattern}
+                  </div>
+                ))
+              )}
             </div>
           )}
 

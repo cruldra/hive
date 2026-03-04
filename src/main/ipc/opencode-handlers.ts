@@ -744,22 +744,30 @@ export function registerOpenCodeHandlers(
         approved,
         remember,
         pattern,
-        worktreePath
+        worktreePath,
+        patterns
       }: {
         requestId: string
         approved: boolean
         remember?: 'allow' | 'block'
         pattern?: string
         worktreePath?: string
+        patterns?: string[]
       }
     ) => {
-      log.info('IPC: opencode:commandApprovalReply', { requestId, approved, remember, pattern })
+      log.info('IPC: opencode:commandApprovalReply', {
+        requestId,
+        approved,
+        remember,
+        pattern,
+        patterns
+      })
       try {
         // Route to Claude Code implementer (command approval is Claude Code specific)
         if (sdkManager) {
           const impl = sdkManager.getImplementer('claude-code')
           if (impl instanceof ClaudeCodeImplementer) {
-            impl.handleApprovalReply(requestId, approved, remember, pattern)
+            impl.handleApprovalReply(requestId, approved, remember, pattern, patterns)
             return { success: true }
           }
         }

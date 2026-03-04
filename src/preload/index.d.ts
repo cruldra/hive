@@ -527,7 +527,8 @@ declare global {
         approved: boolean,
         remember?: 'allow' | 'block',
         pattern?: string,
-        worktreePath?: string
+        worktreePath?: string,
+        patterns?: string[]
       ) => Promise<{ success: boolean; error?: string }>
       // Get session info (revert state)
       sessionInfo: (

@@ -5,6 +5,7 @@ import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useQuestionStore } from '@/stores/useQuestionStore'
 import { usePermissionStore } from '@/stores/usePermissionStore'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useContextStore } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore } from '@/stores'
@@ -12,6 +13,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
+import { checkAutoApprove } from '@/lib/permissionUtils'
 
 interface PromptDispatchContext {
   worktreePath: string
@@ -284,6 +286,19 @@ export function useOpenCodeGlobalListener(): void {
           if (event.type === 'permission.asked' && sessionId !== activeId) {
             const request = event.data
             if (request?.id && request?.permission) {
+              const { commandFilter } = useSettingsStore.getState()
+              // Security globally off OR all sub-patterns in commandFilter allowlist → auto-approve
+              if (
+                !commandFilter.enabled ||
+                checkAutoApprove(request as PermissionRequest, commandFilter.allowlist)
+              ) {
+                window.opencodeOps
+                  .permissionReply(request.id, 'once', undefined)
+                  .catch((err: unknown) => {
+                    console.warn('Auto-approve permissionReply (background) failed:', err)
+                  })
+                return
+              }
               usePermissionStore.getState().addPermission(sessionId, request)
               useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'permission')
             }
