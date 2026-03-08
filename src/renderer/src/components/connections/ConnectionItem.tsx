@@ -314,7 +314,12 @@ export function ConnectionItem({
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 onKeyDown={handleRenameKeyDown}
-                onBlur={() => setIsRenaming(false)}
+                onBlur={() => {
+                  // Delay blur to prevent immediate cancellation from menu closing
+                  setTimeout(() => {
+                    setIsRenaming(false)
+                  }, 100)
+                }}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-background border border-border rounded px-1.5 py-0.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-ring"
                 placeholder={projectNames || 'Connection name'}
