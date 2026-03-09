@@ -857,7 +857,7 @@ export const ToolCard = memo(function ToolCard({
   const isBash = lowerName.includes('bash') || lowerName.includes('shell') || lowerName.includes('exec')
   const command = (toolUse.input.command || toolUse.input.cmd || '') as string
   const hasOutput = !!(toolUse.output || toolUse.error || (isBash && command))
-  const isExitPlanMode = toolUse.name.toLowerCase() === 'exitplanmode'
+  const isExitPlanMode = lowerName === 'exitplanmode'
 
   // Fallback: if toolUse.input.plan is missing, check the pending plan store.
   // This handles the race where plan.ready sets pendingPlan but the streaming
