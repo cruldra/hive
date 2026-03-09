@@ -173,16 +173,48 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
   const [isRenamingBranch, setIsRenamingBranch] = useState(false)
   const [branchNameInput, setBranchNameInput] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const intentionalCloseRef = useRef(false)
+  const renameStartTimeRef = useRef<number>(0)
 
-  // Focus rename input when it appears (deferred to run after menu closes)
+  // Focus rename input when it appears (aggressive focus retention)
   useEffect(() => {
     if (isRenamingBranch) {
-      requestAnimationFrame(() => {
-        renameInputRef.current?.focus()
-        renameInputRef.current?.select()
-      })
+      // Record when we started renaming
+      renameStartTimeRef.current = Date.now()
+
+      // Aggressive focus function that keeps trying to focus
+      const focusInput = () => {
+        if (renameInputRef.current && document.activeElement !== renameInputRef.current) {
+          renameInputRef.current.focus()
+          renameInputRef.current.select()
+        }
+      }
+
+      // Try immediate focus
+      focusInput()
+
+      // Keep trying to focus multiple times to combat focus stealing
+      const intervals = [0, 50, 100, 150, 200, 250, 300, 400, 500]
+      const timers = intervals.map(delay =>
+        setTimeout(focusInput, delay)
+      )
+
+      // Also try with requestAnimationFrame
+      requestAnimationFrame(focusInput)
+
+      return () => {
+        timers.forEach(timer => clearTimeout(timer))
+      }
     }
   }, [isRenamingBranch])
+
+  // Cleanup blur timer on unmount
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+    }
+  }, [])
 
   const handleOpenAttachment = useCallback(async (url: string): Promise<void> => {
     await window.systemOps.openInChrome(url)
@@ -215,6 +247,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
 
   const startBranchRename = useCallback((): void => {
     if (!worktree) return
+    intentionalCloseRef.current = false
     setBranchNameInput(worktree.branch_name)
     setIsRenamingBranch(true)
   }, [worktree])
@@ -223,6 +256,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
     if (!worktree) return
     const trimmed = branchNameInput.trim()
     if (!trimmed || trimmed === worktree.branch_name) {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
       setIsRenamingBranch(false)
       return
     }
@@ -238,6 +272,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
 
     if (!newBranch) {
       toast.error('Invalid branch name')
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
       setIsRenamingBranch(false)
       return
     }
@@ -255,6 +290,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
     } else {
       toast.error(result.error || 'Failed to rename branch')
     }
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     setIsRenamingBranch(false)
   }, [branchNameInput, worktree])
 
@@ -531,13 +567,45 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
                 value={branchNameInput}
                 onChange={(e) => setBranchNameInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleBranchRename()
-                  if (e.key === 'Escape') setIsRenamingBranch(false)
+                  if (e.key === 'Enter') {
+                    intentionalCloseRef.current = true
+                    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+                    handleBranchRename()
+                  }
+                  if (e.key === 'Escape') {
+                    intentionalCloseRef.current = true
+                    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+                    setIsRenamingBranch(false)
+                  }
                 }}
                 onBlur={() => {
-                  // Delay blur to prevent immediate cancellation from menu closing
-                  setTimeout(() => {
-                    setIsRenamingBranch(false)
+                  // Skip scheduling timer if we're intentionally closing via Escape/Enter
+                  if (intentionalCloseRef.current) {
+                    intentionalCloseRef.current = false
+                    return
+                  }
+
+                  // Ignore blur events that happen too soon after starting rename (menu closing)
+                  const timeSinceStart = Date.now() - renameStartTimeRef.current
+                  if (timeSinceStart < 500) {
+                    // Re-focus the input immediately
+                    setTimeout(() => {
+                      if (renameInputRef.current && isRenamingBranch) {
+                        renameInputRef.current.focus()
+                        renameInputRef.current.select()
+                      }
+                    }, 0)
+                    return
+                  }
+
+                  // Delay blur to allow for normal focus changes
+                  if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+                  blurTimerRef.current = setTimeout(() => {
+                    blurTimerRef.current = null
+                    // Only close if the input is still not focused
+                    if (document.activeElement !== renameInputRef.current) {
+                      setIsRenamingBranch(false)
+                    }
                   }, 100)
                 }}
                 onClick={(e) => e.stopPropagation()}
@@ -655,27 +723,62 @@ function PinnedConnectionItem({
   const [isRenaming, setIsRenaming] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const intentionalCloseRef = useRef(false)
+  const renameStartTimeRef = useRef<number>(0)
 
   // Manage worktrees dialog state
   const [manageConnectionId, setManageConnectionId] = useState<string | null>(null)
 
-  // Focus rename input when it appears (deferred to run after menu closes)
+  // Focus rename input when it appears (aggressive focus retention)
   useEffect(() => {
     if (isRenaming) {
-      requestAnimationFrame(() => {
-        renameInputRef.current?.focus()
-        renameInputRef.current?.select()
-      })
+      // Record when we started renaming
+      renameStartTimeRef.current = Date.now()
+
+      // Aggressive focus function that keeps trying to focus
+      const focusInput = () => {
+        if (renameInputRef.current && document.activeElement !== renameInputRef.current) {
+          renameInputRef.current.focus()
+          renameInputRef.current.select()
+        }
+      }
+
+      // Try immediate focus
+      focusInput()
+
+      // Keep trying to focus multiple times to combat focus stealing
+      const intervals = [0, 50, 100, 150, 200, 250, 300, 400, 500]
+      const timers = intervals.map(delay =>
+        setTimeout(focusInput, delay)
+      )
+
+      // Also try with requestAnimationFrame
+      requestAnimationFrame(focusInput)
+
+      return () => {
+        timers.forEach(timer => clearTimeout(timer))
+      }
     }
   }, [isRenaming])
 
+  // Cleanup blur timer on unmount
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+    }
+  }, [])
+
   const handleStartRename = useCallback((): void => {
     if (!connection) return
+    intentionalCloseRef.current = false
     setNameInput(connection.custom_name || '')
     setIsRenaming(true)
   }, [connection])
 
   const handleSaveRename = useCallback(async (): Promise<void> => {
+    intentionalCloseRef.current = true
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     setIsRenaming(false)
     if (!connection) return
     const trimmed = nameInput.trim()
@@ -692,6 +795,8 @@ function PinnedConnectionItem({
         handleSaveRename()
       } else if (e.key === 'Escape') {
         e.preventDefault()
+        intentionalCloseRef.current = true
+        if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
         setIsRenaming(false)
       }
     },
@@ -862,9 +967,33 @@ function PinnedConnectionItem({
                 onChange={(e) => setNameInput(e.target.value)}
                 onKeyDown={handleRenameKeyDown}
                 onBlur={() => {
-                  // Delay blur to prevent immediate cancellation from menu closing
-                  setTimeout(() => {
-                    setIsRenaming(false)
+                  // Skip scheduling timer if we're intentionally closing via Escape/Enter
+                  if (intentionalCloseRef.current) {
+                    intentionalCloseRef.current = false
+                    return
+                  }
+
+                  // Ignore blur events that happen too soon after starting rename (menu closing)
+                  const timeSinceStart = Date.now() - renameStartTimeRef.current
+                  if (timeSinceStart < 500) {
+                    // Re-focus the input immediately
+                    setTimeout(() => {
+                      if (renameInputRef.current && isRenaming) {
+                        renameInputRef.current.focus()
+                        renameInputRef.current.select()
+                      }
+                    }, 0)
+                    return
+                  }
+
+                  // Delay blur to allow for normal focus changes
+                  if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+                  blurTimerRef.current = setTimeout(() => {
+                    blurTimerRef.current = null
+                    // Only close if the input is still not focused
+                    if (document.activeElement !== renameInputRef.current) {
+                      setIsRenaming(false)
+                    }
                   }, 100)
                 }}
                 onClick={(e) => e.stopPropagation()}
