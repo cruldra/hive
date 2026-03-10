@@ -1,4 +1,4 @@
-import fixPath from 'fix-path'
+import { loadShellEnv } from './services/shell-env'
 import { app, shell, BrowserWindow, screen, ipcMain, clipboard } from 'electron'
 import { join } from 'path'
 import { spawn, exec } from 'child_process'
@@ -52,9 +52,7 @@ const isHeadless = cliArgs.includes('--headless')
 const headlessPort = cliArgs.includes('--port')
   ? parseInt(cliArgs[cliArgs.indexOf('--port') + 1])
   : undefined
-const headlessBind = cliArgs.includes('--bind')
-  ? cliArgs[cliArgs.indexOf('--bind') + 1]
-  : undefined
+const headlessBind = cliArgs.includes('--bind') ? cliArgs[cliArgs.indexOf('--bind') + 1] : undefined
 const isRotateKey = cliArgs.includes('--rotate-key')
 const isRegenCerts = cliArgs.includes('--regen-certs')
 const isShowStatus = cliArgs.includes('--show-status')
@@ -311,12 +309,13 @@ function registerSystemHandlers(): void {
 
     try {
       const execPath = process.execPath
-      const scriptContent = [
-        '#!/bin/bash',
-        '# hive-server — Hive headless mode launcher',
-        '# Installed by Hive.app',
-        `exec "${execPath}" --headless "$@"`
-      ].join('\n') + '\n'
+      const scriptContent =
+        [
+          '#!/bin/bash',
+          '# hive-server — Hive headless mode launcher',
+          '# Installed by Hive.app',
+          `exec "${execPath}" --headless "$@"`
+        ].join('\n') + '\n'
 
       // Write to a temp file first (no admin needed), then move with elevation
       const tmpPath = join(app.getPath('temp'), 'hive-server-install')
@@ -375,11 +374,11 @@ function registerLoggingHandlers(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
-  // Fix PATH for macOS when launched from Finder/Dock/Spotlight.
-  // Must run before any child process spawning (opencode, scripts).
-  fixPath()
+  // Load full shell environment for macOS when launched from Finder/Dock/Spotlight.
+  // Must run before any child process spawning (opencode, scripts, Claude Code SDK).
+  loadShellEnv()
 
-  // Resolve system-wide Claude binary (must run after fixPath)
+  // Resolve system-wide Claude binary (must run after loadShellEnv)
   const claudeBinaryPath = resolveClaudeBinaryPath()
 
   log.info('App starting', {

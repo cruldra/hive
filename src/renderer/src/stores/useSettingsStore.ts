@@ -67,6 +67,9 @@ export interface AppSettings {
   // Model icons
   showModelIcons: boolean
 
+  // Model provider
+  showModelProvider: boolean
+
   // Usage indicator
   showUsageIndicator: boolean
 
@@ -81,6 +84,7 @@ export interface AppSettings {
 
   // Updates
   updateChannel: 'stable' | 'canary'
+  skippedUpdateVersion: string | null
 
   // Command Filter
   commandFilter: CommandFilterSettings
@@ -106,10 +110,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   customChromeCommand: '',
   modelVariantDefaults: {},
   showModelIcons: false,
+  showModelProvider: false,
   showUsageIndicator: true,
   defaultAgentSdk: 'opencode',
   stripAtMentions: true,
   updateChannel: 'stable',
+  skippedUpdateVersion: null,
   initialSetupComplete: false,
   commandFilter: {
     allowlist: ['edit: **', 'write: **'],
@@ -212,10 +218,12 @@ function extractSettings(state: SettingsState): AppSettings {
     customChromeCommand: state.customChromeCommand,
     modelVariantDefaults: state.modelVariantDefaults,
     showModelIcons: state.showModelIcons,
+    showModelProvider: state.showModelProvider,
     showUsageIndicator: state.showUsageIndicator,
     defaultAgentSdk: state.defaultAgentSdk,
     stripAtMentions: state.stripAtMentions,
     updateChannel: state.updateChannel,
+    skippedUpdateVersion: state.skippedUpdateVersion,
     initialSetupComplete: state.initialSetupComplete,
     commandFilter: state.commandFilter,
     telemetryEnabled: state.telemetryEnabled
@@ -275,10 +283,7 @@ export const useSettingsStore = create<SettingsState>()(
         }
       },
 
-      setSelectedModel: async (
-        model: SelectedModel,
-        agentSdk?: AppSettings['defaultAgentSdk']
-      ) => {
+      setSelectedModel: async (model: SelectedModel, agentSdk?: AppSettings['defaultAgentSdk']) => {
         if (agentSdk) {
           return get().setSelectedModelForSdk(agentSdk, model)
         }
@@ -392,11 +397,13 @@ export const useSettingsStore = create<SettingsState>()(
         customChromeCommand: state.customChromeCommand,
         modelVariantDefaults: state.modelVariantDefaults,
         showModelIcons: state.showModelIcons,
+        showModelProvider: state.showModelProvider,
         showUsageIndicator: state.showUsageIndicator,
         defaultAgentSdk: state.defaultAgentSdk,
         activeSection: state.activeSection,
         stripAtMentions: state.stripAtMentions,
         updateChannel: state.updateChannel,
+        skippedUpdateVersion: state.skippedUpdateVersion,
         initialSetupComplete: state.initialSetupComplete,
         commandFilter: state.commandFilter,
         telemetryEnabled: state.telemetryEnabled

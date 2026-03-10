@@ -120,23 +120,44 @@ export function ConnectionItem({
   const [isRenaming, setIsRenaming] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const intentionalCloseRef = useRef(false)
+  const renameStartTimeRef = useRef<number>(0)
 
   // Focus rename input when it appears (deferred to run after menu closes)
   useEffect(() => {
     if (isRenaming) {
-      requestAnimationFrame(() => {
-        renameInputRef.current?.focus()
-        renameInputRef.current?.select()
-      })
+      // Focus function
+      const focusInput = () => {
+        if (renameInputRef.current && document.activeElement !== renameInputRef.current) {
+          renameInputRef.current.focus()
+          renameInputRef.current.select()
+        }
+      }
+
+      // Use requestAnimationFrame to focus after menu closes
+      requestAnimationFrame(focusInput)
     }
   }, [isRenaming])
 
+  // Cleanup blur timer on unmount
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+    }
+  }, [])
+
   const handleStartRename = useCallback((): void => {
+    intentionalCloseRef.current = false
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current) // Clear any pending blur timer
+    renameStartTimeRef.current = Date.now() // Record time before setting state
     setNameInput(connection.custom_name || '')
     setIsRenaming(true)
   }, [connection.custom_name])
 
   const handleSaveRename = useCallback(async (): Promise<void> => {
+    intentionalCloseRef.current = true
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     setIsRenaming(false)
     const trimmed = nameInput.trim()
     // Empty string clears the custom name (revert to default)
@@ -154,6 +175,8 @@ export function ConnectionItem({
         handleSaveRename()
       } else if (e.key === 'Escape') {
         e.preventDefault()
+        intentionalCloseRef.current = true
+        if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
         setIsRenaming(false)
       }
     },
@@ -217,8 +240,9 @@ export function ConnectionItem({
   }, [onManageWorktrees, connection.id])
 
   // Build the project names string from unique project names
-  const projectNames =
-    [...new Set(connection.members?.map((m) => m.project_name) || [])].join(' + ')
+  const projectNames = [...new Set(connection.members?.map((m) => m.project_name) || [])].join(
+    ' + '
+  )
 
   // Display logic: custom name takes priority over project names
   const hasCustomName = !!connection.custom_name
@@ -237,11 +261,7 @@ export function ConnectionItem({
         Rename
       </ContextMenuItem>
       <ContextMenuItem onClick={handleTogglePin}>
-        {isPinned ? (
-          <PinOff className="h-4 w-4 mr-2" />
-        ) : (
-          <Pin className="h-4 w-4 mr-2" />
-        )}
+        {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
         {isPinned ? 'Unpin' : 'Pin'}
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -314,7 +334,39 @@ export function ConnectionItem({
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 onKeyDown={handleRenameKeyDown}
-                onBlur={() => setIsRenaming(false)}
+                onBlur={() => {
+                  // Skip scheduling timer if we're intentionally closing via Escape/Enter
+                  if (intentionalCloseRef.current) {
+                    intentionalCloseRef.current = false
+                    return
+                  }
+                  // Ignore blur events that happen too soon after starting rename (menu closing)
+                  const timeSinceStart = Date.now() - renameStartTimeRef.current
+                  if (timeSinceStart < 500) {
+                    // Always refocus during the first 500ms (menu closing period)
+                    // User can press Escape to cancel if needed
+                    setTimeout(() => {
+                      if (
+                        renameInputRef.current &&
+                        document.activeElement !== renameInputRef.current
+                      ) {
+                        renameInputRef.current.focus()
+                        renameInputRef.current.select()
+                      }
+                    }, 0)
+                    return
+                  }
+
+                  // Delay blur to allow for normal focus changes
+                  if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+                  blurTimerRef.current = setTimeout(() => {
+                    blurTimerRef.current = null
+                    // Only close if the input is still not focused
+                    if (document.activeElement !== renameInputRef.current) {
+                      setIsRenaming(false)
+                    }
+                  }, 100)
+                }}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-background border border-border rounded px-1.5 py-0.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-ring"
                 placeholder={projectNames || 'Connection name'}
@@ -386,11 +438,7 @@ export function ConnectionItem({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePin}>
-                {isPinned ? (
-                  <PinOff className="h-4 w-4 mr-2" />
-                ) : (
-                  <Pin className="h-4 w-4 mr-2" />
-                )}
+                {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
                 {isPinned ? 'Unpin' : 'Pin'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />

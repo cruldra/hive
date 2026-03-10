@@ -387,10 +387,7 @@ export function registerOpenCodeHandlers(
   // List available slash commands
   ipcMain.handle(
     'opencode:commands',
-    async (
-      _event,
-      { worktreePath, sessionId }: { worktreePath: string; sessionId?: string }
-    ) => {
+    async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId?: string }) => {
       log.info('IPC: opencode:commands', { worktreePath, sessionId })
       try {
         // SDK-aware dispatch: route non-OpenCode sessions to their implementer

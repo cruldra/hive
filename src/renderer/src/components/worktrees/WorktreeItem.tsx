@@ -216,23 +216,44 @@ export function WorktreeItem({
   const [isRenamingBranch, setIsRenamingBranch] = useState(false)
   const [branchNameInput, setBranchNameInput] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const intentionalCloseRef = useRef(false)
+  const renameStartTimeRef = useRef<number>(0)
 
   // Auto-focus the rename input when it appears (deferred to run after menu closes)
   useEffect(() => {
     if (isRenamingBranch) {
-      requestAnimationFrame(() => {
-        renameInputRef.current?.focus()
-        renameInputRef.current?.select()
-      })
+      // Focus function
+      const focusInput = () => {
+        if (renameInputRef.current && document.activeElement !== renameInputRef.current) {
+          renameInputRef.current.focus()
+          renameInputRef.current.select()
+        }
+      }
+
+      // Use requestAnimationFrame to focus after menu closes
+      requestAnimationFrame(focusInput)
     }
   }, [isRenamingBranch])
 
+  // Cleanup blur timer on unmount
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+    }
+  }, [])
+
   const startBranchRename = useCallback((): void => {
+    intentionalCloseRef.current = false
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current) // Clear any pending blur timer
+    renameStartTimeRef.current = Date.now() // Record time before setting state
     setBranchNameInput(worktree.branch_name)
     setIsRenamingBranch(true)
   }, [worktree.branch_name])
 
   const handleBranchRename = useCallback(async (): Promise<void> => {
+    intentionalCloseRef.current = true
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     const trimmed = branchNameInput.trim()
     if (!trimmed || trimmed === worktree.branch_name) {
       setIsRenamingBranch(false)
@@ -505,10 +526,49 @@ export function WorktreeItem({
                 value={branchNameInput}
                 onChange={(e) => setBranchNameInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleBranchRename()
-                  if (e.key === 'Escape') setIsRenamingBranch(false)
+                  if (e.key === 'Enter') {
+                    handleBranchRename()
+                  }
+                  if (e.key === 'Escape') {
+                    intentionalCloseRef.current = true
+                    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+                    setIsRenamingBranch(false)
+                  }
                 }}
-                onBlur={() => setIsRenamingBranch(false)}
+                onBlur={() => {
+                  // Skip scheduling timer if we're intentionally closing via Escape/Enter
+                  if (intentionalCloseRef.current) {
+                    intentionalCloseRef.current = false
+                    return
+                  }
+
+                  // Ignore blur events that happen too soon after starting rename (menu closing)
+                  const timeSinceStart = Date.now() - renameStartTimeRef.current
+                  if (timeSinceStart < 500) {
+                    // Always refocus during the first 500ms (menu closing period)
+                    // User can press Escape to cancel if needed
+                    setTimeout(() => {
+                      if (
+                        renameInputRef.current &&
+                        document.activeElement !== renameInputRef.current
+                      ) {
+                        renameInputRef.current.focus()
+                        renameInputRef.current.select()
+                      }
+                    }, 0)
+                    return
+                  }
+
+                  // Delay blur to allow for normal focus changes
+                  if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
+                  blurTimerRef.current = setTimeout(() => {
+                    blurTimerRef.current = null
+                    // Only close if the input is still not focused
+                    if (document.activeElement !== renameInputRef.current) {
+                      setIsRenamingBranch(false)
+                    }
+                  }, 100)
+                }}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-background border border-border rounded px-1.5 py-0.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-ring"
                 data-testid="branch-rename-input"
@@ -613,11 +673,7 @@ export function WorktreeItem({
                 Copy Path
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePin}>
-                {isPinned ? (
-                  <PinOff className="h-4 w-4 mr-2" />
-                ) : (
-                  <Pin className="h-4 w-4 mr-2" />
-                )}
+                {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
                 {isPinned ? 'Unpin' : 'Pin'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -722,11 +778,7 @@ export function WorktreeItem({
           Copy Path
         </ContextMenuItem>
         <ContextMenuItem onClick={handleTogglePin}>
-          {isPinned ? (
-            <PinOff className="h-4 w-4 mr-2" />
-          ) : (
-            <Pin className="h-4 w-4 mr-2" />
-          )}
+          {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
           {isPinned ? 'Unpin' : 'Pin'}
         </ContextMenuItem>
         <ContextMenuSeparator />
