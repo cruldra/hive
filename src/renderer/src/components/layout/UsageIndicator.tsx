@@ -93,8 +93,6 @@ export function UsageIndicator(): React.JSX.Element | null {
   const setActiveProvider = useUsageStore((s) => s.setActiveProvider)
 
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
-  const sessionsByWorktree = useSessionStore((s) => s.sessionsByWorktree)
-  const sessionsByConnection = useSessionStore((s) => s.sessionsByConnection)
 
   // Detect provider from active session
   useEffect(() => {
@@ -104,7 +102,7 @@ export function UsageIndicator(): React.JSX.Element | null {
       const provider = resolveUsageProvider(session)
       setActiveProvider(provider)
     }
-  }, [activeSessionId, sessionsByWorktree, sessionsByConnection, setActiveProvider])
+  }, [activeSessionId, setActiveProvider])
 
   useEffect(() => {
     fetchUsage()

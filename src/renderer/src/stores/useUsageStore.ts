@@ -81,7 +81,7 @@ export const useUsageStore = create<UsageState>()((set, get) => ({
     const isStale = !lastFetched || Date.now() - lastFetched >= DEBOUNCE_MS
 
     if (isStale) {
-      state.fetchUsageForProvider(provider)
+      state.fetchUsageForProvider(provider).catch(() => {})
     }
   },
 
@@ -125,13 +125,13 @@ export function normalizeUsage(
       utilization: primary ? primary.used_percent : 0,
       resets_at: primary
         ? new Date(primary.reset_at * 1000).toISOString()
-        : new Date().toISOString()
+        : ''
     },
     seven_day: {
       utilization: secondary ? secondary.used_percent : 0,
       resets_at: secondary
         ? new Date(secondary.reset_at * 1000).toISOString()
-        : new Date().toISOString()
+        : ''
     }
   }
 }
