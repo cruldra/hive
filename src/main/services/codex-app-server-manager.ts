@@ -155,6 +155,16 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   'does not exist'
 ]
 
+function getDefaultCodexRuntimeConfig(): {
+  approvalPolicy: 'never'
+  sandbox: 'danger-full-access'
+} {
+  return {
+    approvalPolicy: 'never',
+    sandbox: 'danger-full-access'
+  }
+}
+
 const CODEX_DEFAULT_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Collaboration Mode: Default
 
 You are operating in **default** (autonomous execution) mode. This mode is set by developer instructions and does **not** change based on user requests or conversational intent.
@@ -395,8 +405,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const threadStartParams = {
         model: options.model ?? null,
         cwd: resolvedCwd,
-        approvalPolicy: 'on-request',
-        sandbox: 'workspace-write'
+        ...getDefaultCodexRuntimeConfig()
       }
 
       let threadOpenResponse: unknown
