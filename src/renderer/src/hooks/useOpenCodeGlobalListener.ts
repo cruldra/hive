@@ -322,6 +322,11 @@ export function useOpenCodeGlobalListener(): void {
 
           // Handle plan approval events globally so pending state survives tab switches.
           if (event.type === 'plan.ready') {
+            console.log('[DEBUG:PLAN:GlobalListener] plan.ready received', {
+              sessionId,
+              eventSessionId: event.sessionId,
+              data: event.data
+            })
             const data = event.data as
               | { id?: string; requestId?: string; plan?: string; toolUseID?: string }
               | undefined

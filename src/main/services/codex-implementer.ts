@@ -411,17 +411,17 @@ export class CodexImplementer implements AgentSdkImplementer {
       }
 
       if (interactionMode === 'plan') {
+        // Only extract plan from streaming events when <proposed_plan> XML
+        // tags are present — the tag-based extraction is reliable.  Without
+        // tags these events carry only the LAST message fragment, so we let
+        // the post-turn fallback use the full accumulated assistantText.
         if (event.method === 'codex/event/task_complete') {
           const payload = asObject(event.payload)
           const msg = asObject(payload?.msg)
           const planText = asString(msg?.last_agent_message)
           if (planText) {
             const extracted = extractProposedPlanMarkdown(planText)
-            if (extracted) {
-              pendingPlanText = extracted
-            } else if (looksLikeCodexProposedPlan(planText)) {
-              pendingPlanText = planText
-            }
+            if (extracted) pendingPlanText = extracted
           }
         }
 
@@ -432,11 +432,7 @@ export class CodexImplementer implements AgentSdkImplementer {
           const planText = asString(item?.text)
           if (itemType === 'agentmessage' && planText) {
             const extracted = extractProposedPlanMarkdown(planText)
-            if (extracted) {
-              pendingPlanText = extracted
-            } else if (looksLikeCodexProposedPlan(planText)) {
-              pendingPlanText = planText
-            }
+            if (extracted) pendingPlanText = extracted
           }
         }
       }
@@ -517,19 +513,55 @@ export class CodexImplementer implements AgentSdkImplementer {
         }
       }
 
-      // If no plan was detected from events, check accumulated assistant text
-      // (in case the <proposed_plan> block appeared in streaming text rather than event payload)
-      if (interactionMode === 'plan' && !pendingPlanText && assistantText) {
-        const extracted = extractProposedPlanMarkdown(assistantText)
-        if (extracted) {
-          pendingPlanText = extracted
-        } else if (looksLikeCodexProposedPlan(assistantText)) {
-          pendingPlanText = assistantText
+      // If no plan was detected from streaming events, extract from the parsed
+      // thread snapshot.  session.messages has properly separated messages
+      // (unlike assistantText which concatenates all deltas without separators).
+      // Use the last assistant text message — in plan mode that's the plan.
+      if (interactionMode === 'plan' && !pendingPlanText) {
+        const msgs = session.messages as Array<Record<string, unknown>>
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i]?.role !== 'assistant') continue
+          const parts = msgs[i].parts as Array<Record<string, unknown>> | undefined
+          if (!Array.isArray(parts)) continue
+          for (let j = parts.length - 1; j >= 0; j--) {
+            if (parts[j]?.type === 'text' && typeof parts[j]?.text === 'string') {
+              const text = parts[j].text as string
+              const extracted = extractProposedPlanMarkdown(text)
+              pendingPlanText = extracted ?? text
+              break
+            }
+          }
+          if (pendingPlanText) break
+        }
+
+        // Ultimate fallback: accumulated streaming text (lossy but better than nothing)
+        if (!pendingPlanText && assistantText) {
+          const extracted = extractProposedPlanMarkdown(assistantText)
+          pendingPlanText = extracted ?? assistantText
         }
       }
 
+      // DEBUG: plan detection diagnostics
+      log.info('[DEBUG:PLAN] Post-turn plan detection', {
+        interactionMode,
+        pendingPlanTextLength: pendingPlanText?.length ?? 0,
+        hasPendingPlanText: !!pendingPlanText,
+        pendingPlanTextFirst300: pendingPlanText?.slice(0, 300) ?? '',
+        sessionMessagesCount: session.messages.length,
+        hiveSessionId: session.hiveSessionId,
+        threadId: session.threadId
+      })
+
       if (interactionMode === 'plan' && pendingPlanText) {
+        const toolUseID = `codex-exitplan-${session.threadId}-${Date.now()}`
         const requestId = `codex-plan:${session.threadId}`
+        log.info('[DEBUG:PLAN] Emitting plan.ready', {
+          requestId,
+          toolUseID,
+          planTextLength: pendingPlanText.length,
+          planTextFirst200: pendingPlanText.slice(0, 200),
+          hiveSessionId: session.hiveSessionId
+        })
         this.sendToRenderer('opencode:stream', {
           type: 'plan.ready',
           sessionId: session.hiveSessionId,
@@ -537,8 +569,16 @@ export class CodexImplementer implements AgentSdkImplementer {
             id: requestId,
             requestId,
             plan: pendingPlanText,
-            toolUseID: `codex-exitplan-${session.threadId}-${Date.now()}`
+            toolUseID
           }
+        })
+      } else {
+        log.info('[DEBUG:PLAN] NOT emitting plan.ready', {
+          interactionMode,
+          hasPendingPlanText: !!pendingPlanText,
+          reason: interactionMode !== 'plan'
+            ? 'interactionMode is not plan'
+            : 'no pendingPlanText detected'
         })
       }
 
@@ -1010,6 +1050,15 @@ export class CodexImplementer implements AgentSdkImplementer {
 
   private sendToRenderer(channel: string, data: unknown): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      const evt = data as Record<string, unknown> | undefined
+      if (evt?.type === 'plan.ready') {
+        log.info('[DEBUG:PLAN] sendToRenderer plan.ready IPC', {
+          channel,
+          sessionId: evt?.sessionId,
+          hasWindow: true,
+          dataKeys: Object.keys(evt ?? {})
+        })
+      }
       this.mainWindow.webContents.send(channel, data)
     } else {
       log.debug('sendToRenderer: no window (headless)')

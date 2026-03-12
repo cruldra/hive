@@ -1340,6 +1340,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
           // Handle plan events (ExitPlanMode blocking tool)
           if (event.type === 'plan.ready') {
+            console.log('[DEBUG:PLAN:SessionView] plan.ready received', {
+              sessionId,
+              eventSessionId: event.sessionId,
+              data: event.data,
+              streamingPartsCount: streamingPartsRef.current.length,
+              streamingPartsTypes: streamingPartsRef.current.map((p) => p.type)
+            })
             const data = event.data as {
               id?: string
               requestId?: string
@@ -1347,6 +1354,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               toolUseID?: string
             }
             const requestId = data?.id || data?.requestId
+            console.log('[DEBUG:PLAN:SessionView] plan.ready parsed', {
+              requestId,
+              planLength: (data.plan ?? '').length,
+              toolUseID: data.toolUseID,
+              toolUseIDTruthy: !!data.toolUseID,
+              hasRequestId: !!requestId
+            })
             if (requestId) {
               let planText = data.plan ?? ''
 
@@ -1376,6 +1390,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   return { ...p, text: stripped }
                 })
               )
+
+              console.log('[DEBUG:PLAN:SessionView] Before tool card injection', {
+                planTextLength: planText.length,
+                planTextFirst100: planText.slice(0, 100),
+                toolUseID: data.toolUseID,
+                willEnterBlock: !!(planText && data.toolUseID),
+                streamingPartsAfterStrip: streamingPartsRef.current.length
+              })
 
               // Inject plan content into the ExitPlanMode tool_use input for rendering
               if (planText && data.toolUseID) {
@@ -1416,6 +1438,21 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   ])
                 }
                 immediateFlush()
+                console.log('[DEBUG:PLAN:SessionView] Tool card injected + flushed', {
+                  toolUseID: data.toolUseID,
+                  partsAfterInject: streamingPartsRef.current.length,
+                  partsTypes: streamingPartsRef.current.map((p) => p.type),
+                  toolUseParts: streamingPartsRef.current
+                    .filter((p) => p.type === 'tool_use')
+                    .map((p) => ({ id: p.toolUse?.id, name: p.toolUse?.name, status: p.toolUse?.status }))
+                })
+              } else {
+                console.log('[DEBUG:PLAN:SessionView] SKIPPED tool card injection', {
+                  planTextLength: planText.length,
+                  planTextTruthy: !!planText,
+                  toolUseID: data.toolUseID,
+                  toolUseIDTruthy: !!data.toolUseID
+                })
               }
 
               useSessionStore.getState().setPendingPlan(sessionId, {
@@ -1424,6 +1461,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 toolUseID: data.toolUseID ?? ''
               })
               useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
+              console.log('[DEBUG:PLAN:SessionView] setPendingPlan + plan_ready status done', {
+                requestId,
+                planContentLength: planText.length,
+                toolUseID: data.toolUseID ?? ''
+              })
             }
             return
           }
