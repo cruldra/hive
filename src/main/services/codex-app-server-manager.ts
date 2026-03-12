@@ -888,6 +888,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     notification: JsonRpcNotification
   ): void {
+    // DEBUG: Log all server notifications to discover title events
+    if (
+      notification.method !== 'item/agentMessage/delta' &&
+      notification.method !== 'item/agentReasoning/delta'
+    ) {
+      log.info('DEBUG handleServerNotification: received', {
+        method: notification.method,
+        paramsKeys: notification.params
+          ? Object.keys(notification.params as Record<string, unknown>)
+          : [],
+        paramsSnapshot: JSON.stringify(notification.params).slice(0, 500)
+      })
+    }
+
     const route = this.readRouteFields(notification.params)
 
     // Extract textDelta for streaming text notifications (matches t3code pattern)

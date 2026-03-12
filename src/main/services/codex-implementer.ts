@@ -13,6 +13,7 @@ import { CodexAppServerManager, type CodexManagerEvent } from './codex-app-serve
 import { mapCodexEventToStreamEvents, contentStreamKindFromMethod } from './codex-event-mapper'
 import { asObject, asString } from './codex-utils'
 import type { DatabaseService } from '../db/database'
+import { autoRenameWorktreeBranch } from './git-service'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -26,6 +27,7 @@ export interface CodexSessionState {
   messages: unknown[]
   revertMessageID: string | null
   revertDiff: string | null
+  titleGenerated: boolean
 }
 
 // ── Pending HITL entry (shared by questions and approvals) ────────
@@ -66,6 +68,17 @@ function extractProposedPlanMarkdown(text: string): string | null {
   return match ? (match[1]?.trim() ?? null) : null
 }
 
+// ── Immediate title helpers ────────────────────────────────────────────────
+
+const IMMEDIATE_TITLE_LENGTH = 50
+
+function truncateForImmediateTitle(text: string): string {
+  const trimmed = text.trim().split(/\r?\n/, 1)[0]?.trim() ?? ''
+  if (!trimmed) return ''
+  if (trimmed.length <= IMMEDIATE_TITLE_LENGTH) return trimmed
+  return trimmed.slice(0, IMMEDIATE_TITLE_LENGTH - 3) + '...'
+}
+
 export class CodexImplementer implements AgentSdkImplementer {
   readonly id = 'codex' as const
   readonly capabilities: AgentSdkCapabilities = CODEX_CAPABILITIES
@@ -103,12 +116,28 @@ export class CodexImplementer implements AgentSdkImplementer {
   }
 
   private handleManagerEvent(event: CodexManagerEvent): void {
+    // DEBUG: Log ALL notification events to discover title-related methods
+    if (event.kind === 'notification') {
+      log.info('DEBUG handleManagerEvent: notification received', {
+        method: event.method,
+        threadId: event.threadId,
+        payloadKeys: event.payload ? Object.keys(event.payload as Record<string, unknown>) : [],
+        payloadSnapshot: JSON.stringify(event.payload).slice(0, 500)
+      })
+    }
+
     // Clean up stale pending entries when a session closes
     if (
       event.kind === 'session' &&
       (event.method === 'session/closed' || event.method === 'session/exited')
     ) {
       this.cleanupPendingForThread(event.threadId)
+      return
+    }
+
+    // Handle thread name updates from the Codex provider (title generation)
+    if (event.kind === 'notification' && event.method === 'thread/name/updated') {
+      this.handleProviderTitleUpdate(event).catch(() => {})
       return
     }
 
@@ -179,6 +208,125 @@ export class CodexImplementer implements AgentSdkImplementer {
     }
   }
 
+  private async handleProviderTitleUpdate(event: CodexManagerEvent): Promise<void> {
+    const payload = asObject(event.payload)
+    log.info('DEBUG handleProviderTitleUpdate: raw payload', {
+      payloadKeys: payload ? Object.keys(payload) : [],
+      fullPayload: JSON.stringify(event.payload).slice(0, 1000)
+    })
+    const title = asString(payload?.threadName)
+    if (!title) {
+      log.warn('DEBUG handleProviderTitleUpdate: threadName field empty/missing, tried payload?.threadName')
+      return
+    }
+
+    // Find session by threadId
+    let targetSession: CodexSessionState | undefined
+    for (const session of this.sessions.values()) {
+      if (session.threadId === event.threadId) {
+        targetSession = session
+        break
+      }
+    }
+    if (!targetSession) return
+
+    // 1. Update DB
+    if (this.dbService) {
+      this.dbService.updateSession(targetSession.hiveSessionId, { name: title })
+      log.info('handleProviderTitleUpdate: updated DB', {
+        hiveSessionId: targetSession.hiveSessionId,
+        title
+      })
+    }
+
+    // 2. Notify renderer
+    this.sendToRenderer('opencode:stream', {
+      type: 'session.updated',
+      sessionId: targetSession.hiveSessionId,
+      data: { title, info: { title } }
+    })
+
+    // 3. Auto-rename branch for the session's direct worktree
+    if (!this.dbService) return
+    const worktree = this.dbService.getWorktreeBySessionId(targetSession.hiveSessionId)
+    if (worktree && !worktree.branch_renamed) {
+      try {
+        const result = await autoRenameWorktreeBranch({
+          worktreeId: worktree.id,
+          worktreePath: worktree.path,
+          currentBranchName: worktree.branch_name,
+          sessionTitle: title,
+          db: this.dbService
+        })
+        if (result.renamed) {
+          this.sendToRenderer('worktree:branchRenamed', {
+            worktreeId: worktree.id,
+            newBranch: result.newBranch
+          })
+          log.info('handleProviderTitleUpdate: auto-renamed branch', {
+            oldBranch: worktree.branch_name,
+            newBranch: result.newBranch
+          })
+        } else if (result.error) {
+          log.warn('handleProviderTitleUpdate: rename failed', { error: result.error })
+        }
+      } catch (err) {
+        if (this.dbService) {
+          this.dbService.updateWorktree(worktree.id, { branch_renamed: 1 })
+        }
+        log.warn('handleProviderTitleUpdate: branch rename error', { err })
+      }
+    }
+
+    // 4. Auto-rename branches for all connection member worktrees
+    if (this.dbService) {
+      const dbSession = this.dbService.getSession(targetSession.hiveSessionId)
+      if (dbSession?.connection_id) {
+        const connection = this.dbService.getConnection(dbSession.connection_id)
+        if (connection) {
+          for (const member of connection.members) {
+            if (worktree && member.worktree_id === worktree.id) continue
+            try {
+              const memberWorktree = this.dbService.getWorktree(member.worktree_id)
+              if (!memberWorktree || memberWorktree.branch_renamed) continue
+
+              const result = await autoRenameWorktreeBranch({
+                worktreeId: memberWorktree.id,
+                worktreePath: memberWorktree.path,
+                currentBranchName: memberWorktree.branch_name,
+                sessionTitle: title,
+                db: this.dbService
+              })
+              if (result.renamed) {
+                this.sendToRenderer('worktree:branchRenamed', {
+                  worktreeId: memberWorktree.id,
+                  newBranch: result.newBranch
+                })
+                log.info('handleProviderTitleUpdate: auto-renamed connection member', {
+                  connectionId: dbSession.connection_id,
+                  worktreeId: memberWorktree.id,
+                  oldBranch: memberWorktree.branch_name,
+                  newBranch: result.newBranch
+                })
+              } else if (result.error) {
+                log.warn('handleProviderTitleUpdate: connection member rename failed', {
+                  connectionId: dbSession.connection_id,
+                  worktreeId: memberWorktree.id,
+                  error: result.error
+                })
+              }
+            } catch (err) {
+              log.warn('handleProviderTitleUpdate: connection member rename error', {
+                worktreeId: member.worktree_id,
+                err
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async connect(worktreePath: string, hiveSessionId: string): Promise<{ sessionId: string }> {
@@ -206,7 +354,8 @@ export class CodexImplementer implements AgentSdkImplementer {
       status: this.mapProviderStatus(providerSession.status),
       messages: [],
       revertMessageID: null,
-      revertDiff: null
+      revertDiff: null,
+      titleGenerated: false
     }
     this.sessions.set(key, state)
 
@@ -268,7 +417,8 @@ export class CodexImplementer implements AgentSdkImplementer {
         status: this.mapProviderStatus(providerSession.status),
         messages: [],
         revertMessageID: null,
-        revertDiff: null
+        revertDiff: null,
+        titleGenerated: true
       }
       this.sessions.set(newKey, state)
 
@@ -355,6 +505,25 @@ export class CodexImplementer implements AgentSdkImplementer {
     if (!text.trim()) {
       log.warn('Prompt: empty text, ignoring', { worktreePath, agentSessionId })
       return
+    }
+
+    // Immediate title: set truncated first message as title for instant UX feedback
+    const isFirstMessage = session.messages.length === 0 && !session.titleGenerated
+    if (isFirstMessage) {
+      session.titleGenerated = true
+      const immediateTitle = truncateForImmediateTitle(text)
+      if (immediateTitle && this.dbService) {
+        this.dbService.updateSession(session.hiveSessionId, { name: immediateTitle })
+        this.sendToRenderer('opencode:stream', {
+          type: 'session.updated',
+          sessionId: session.hiveSessionId,
+          data: { title: immediateTitle, info: { title: immediateTitle } }
+        })
+        log.info('Prompt: set immediate title', {
+          hiveSessionId: session.hiveSessionId,
+          immediateTitle
+        })
+      }
     }
 
     // Inject synthetic user message so getMessages() returns it
@@ -1217,7 +1386,8 @@ export class CodexImplementer implements AgentSdkImplementer {
         status: this.mapProviderStatus(providerSession.status),
         messages: [],
         revertMessageID: null,
-        revertDiff: null
+        revertDiff: null,
+        titleGenerated: true
       }
 
       this.sessions.set(this.getSessionKey(worktreePath, threadId), recovered)

@@ -504,6 +504,21 @@ export function mapCodexEventToStreamEvents(
     return []
   }
 
+  // ── Thread name updated (provider-generated title) ────────────────
+  if (method === 'thread/name/updated') {
+    const payload = asObject(event.payload)
+    const title = asString(payload?.threadName)
+    if (!title) return []
+
+    return [
+      {
+        type: 'session.updated',
+        sessionId: hiveSessionId,
+        data: { title, info: { title } }
+      }
+    ]
+  }
+
   // ── Stderr output (informational, silently drop) ───────────
   if (event.method === 'process/stderr') {
     return []
