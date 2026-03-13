@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { vi } from 'vitest'
+import { beforeEach, vi } from 'vitest'
 
 if (typeof window !== 'undefined') {
   // Synchronous rAF mock — fires the callback immediately so that
@@ -45,6 +45,10 @@ if (typeof window !== 'undefined') {
       }
     })
   }
+
+  beforeEach(() => {
+    window.localStorage?.clear?.()
+  })
 
   // Mock gitOps for components that use GitStatusPanel
   const mockGitOps = {
