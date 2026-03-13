@@ -150,6 +150,34 @@ describe('syncWorktreesOp', () => {
     expect(db.createWorktree).not.toHaveBeenCalled()
   })
 
+  test('syncs default worktree branch changes without archiving it', async () => {
+    listWorktreesMock.mockResolvedValue([{ path: '/repos/app', branch: 'trunk', isMain: true }])
+
+    const db = createDbMock({
+      getActiveWorktreesByProject: vi.fn(() => [
+        {
+          id: 'wt-default',
+          path: '/repos/app',
+          branch_name: 'main',
+          name: '(no-worktree)',
+          is_default: true,
+          branch_renamed: 0
+        }
+      ])
+    })
+
+    const result = await syncWorktreesOp(db, {
+      projectId: 'proj-1',
+      projectPath: '/repos/app'
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(db.updateWorktree).toHaveBeenCalledWith('wt-default', {
+      branch_name: 'trunk'
+    })
+    expect(db.archiveWorktree).not.toHaveBeenCalled()
+  })
+
   test('archives stale non-default database worktrees that are missing from git and disk', async () => {
     const db = createDbMock({
       getActiveWorktreesByProject: vi.fn(() => [

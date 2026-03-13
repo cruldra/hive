@@ -284,14 +284,14 @@ export async function syncWorktreesOp(
 
     // Check each database worktree
     for (const dbWorktree of dbWorktrees) {
-      if (dbWorktree.is_default) {
-        continue
-      }
-
       // If worktree path doesn't exist in git worktrees or on disk
       const normalizedDbWorktreePath = normalizeWorktreePath(dbWorktree.path)
 
       if (!gitWorktreePaths.has(normalizedDbWorktreePath) && !existsSync(dbWorktree.path)) {
+        if (dbWorktree.is_default) {
+          continue
+        }
+
         // Mark as archived (worktree was removed outside of Hive)
         db.archiveWorktree(dbWorktree.id)
         continue
