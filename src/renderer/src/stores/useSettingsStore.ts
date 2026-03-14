@@ -227,6 +227,7 @@ function extractSettings(state: SettingsState): AppSettings {
     defaultAgentSdk: state.defaultAgentSdk,
     stripAtMentions: state.stripAtMentions,
     codexFastMode: state.codexFastMode,
+    codexFastModeAccepted: state.codexFastModeAccepted,
     updateChannel: state.updateChannel,
     skippedUpdateVersion: state.skippedUpdateVersion,
     initialSetupComplete: state.initialSetupComplete,
