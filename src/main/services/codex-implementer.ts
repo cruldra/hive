@@ -413,6 +413,11 @@ export class CodexImplementer implements AgentSdkImplementer {
       this.sessions.set(newKey, state)
 
       log.info('Reconnected via thread resume', { worktreePath, agentSessionId, threadId })
+
+      // Fire-and-forget: hydrate token usage so the context bar shows
+      // accumulated usage from previous turns, not 0/200k.
+      this.hydrateTokenUsageFromThread(state).catch(() => {})
+
       return {
         success: true,
         sessionStatus: this.statusToHive(state.status),
@@ -854,6 +859,8 @@ export class CodexImplementer implements AgentSdkImplementer {
     if (session.status !== 'closed') {
       try {
         const threadSnapshot = await this.manager.readThread(session.threadId)
+        // Extract token usage from the snapshot (hydrates context bar on reconnect)
+        this.emitTokenUsageFromSnapshot(session, threadSnapshot)
         const parsed = this.parseThreadSnapshot(threadSnapshot)
         if (parsed.length > 0) {
           session.messages = parsed
@@ -1274,6 +1281,74 @@ export class CodexImplementer implements AgentSdkImplementer {
         this.pendingApprovalSessions.delete(reqId)
       }
     }
+  }
+
+  /**
+   * Read the thread snapshot and extract token usage, emitting it to the
+   * renderer so the context bar shows accumulated usage on reconnect.
+   */
+  private async hydrateTokenUsageFromThread(session: CodexSessionState): Promise<void> {
+    try {
+      const snapshot = await this.manager.readThread(session.threadId)
+      this.emitTokenUsageFromSnapshot(session, snapshot)
+    } catch (error) {
+      log.debug('hydrateTokenUsageFromThread: readThread failed', {
+        hiveSessionId: session.hiveSessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  /**
+   * Extract tokenUsage from a thread/read snapshot and send it to the
+   * renderer as a session.context_usage event.
+   */
+  private emitTokenUsageFromSnapshot(session: CodexSessionState, snapshot: unknown): void {
+    const obj = asObject(snapshot)
+    const threadObj = asObject(obj?.thread) ?? obj
+    const tokenUsage = asObject(threadObj?.tokenUsage)
+    if (!tokenUsage) return
+
+    const total = asObject(tokenUsage.total)
+    if (!total) return
+
+    const inputTokens = asNumber(total.inputTokens) ?? 0
+    const cachedInputTokens = asNumber(total.cachedInputTokens) ?? 0
+    const outputTokens = asNumber(total.outputTokens) ?? 0
+    const reasoningOutputTokens = asNumber(total.reasoningOutputTokens) ?? 0
+    const contextWindow = asNumber(tokenUsage.modelContextWindow) ?? 0
+
+    // Only emit if there's actual usage data
+    if (inputTokens === 0 && outputTokens === 0) return
+
+    const modelID = resolveCodexModelSlug(
+      asString(threadObj?.model) ?? this.selectedModel
+    )
+
+    this.sendToRenderer('opencode:stream', {
+      type: 'session.context_usage',
+      sessionId: session.hiveSessionId,
+      data: {
+        tokens: {
+          // OpenAI inputTokens includes cached; subtract so
+          // input + cacheRead = total prompt tokens in store
+          input: inputTokens - cachedInputTokens,
+          cacheRead: cachedInputTokens,
+          cacheWrite: 0,
+          output: outputTokens,
+          reasoning: reasoningOutputTokens
+        },
+        model: { providerID: 'codex', modelID },
+        contextWindow
+      }
+    })
+
+    log.info('hydrateTokenUsageFromThread: emitted context_usage', {
+      hiveSessionId: session.hiveSessionId,
+      inputTokens,
+      contextWindow,
+      modelID
+    })
   }
 
   private findSessionByThreadId(threadId: string): CodexSessionState | undefined {
