@@ -217,14 +217,14 @@ export function useVimNavigation(): void {
       }
 
       // --- Panel shortcuts: bottom panel tabs ---
-      if (event.key === 's' || event.key === 'r' || event.key === 't') {
+      if (event.key === 's' || event.key === 'u' || event.key === 't') {
         const layout = useLayoutStore.getState()
         if (layout.rightSidebarCollapsed) {
           layout.setRightSidebarCollapsed(false)
         }
         const tabMap: Record<string, 'setup' | 'run' | 'terminal'> = {
           s: 'setup',
-          r: 'run',
+          u: 'run',
           t: 'terminal'
         }
         layout.setBottomPanelTab(tabMap[event.key])
@@ -243,6 +243,24 @@ export function useVimNavigation(): void {
         navigateFileTab(1)
         event.preventDefault()
         return
+      }
+
+      // --- Header action shortcuts ---
+      if (event.key === 'r') {
+        const btn = document.querySelector<HTMLElement>('[data-testid="review-button"]')
+        if (btn) { btn.click(); event.preventDefault(); return }
+      }
+      if (event.key === 'p') {
+        const btn = document.querySelector<HTMLElement>('[data-testid="pr-button"]')
+        if (btn) { btn.click(); event.preventDefault(); return }
+      }
+      if (event.key === 'm') {
+        const btn = document.querySelector<HTMLElement>('[data-testid="pr-merge-button"]')
+        if (btn) { btn.click(); event.preventDefault(); return }
+      }
+      if (event.key === 'a') {
+        const btn = document.querySelector<HTMLElement>('[data-testid="pr-archive-button"]')
+        if (btn) { btn.click(); event.preventDefault(); return }
       }
 
       // --- Hint dispatch: idle mode → uppercase starts pending ---

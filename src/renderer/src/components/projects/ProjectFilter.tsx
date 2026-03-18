@@ -43,6 +43,11 @@ export function ProjectFilter({ value, onChange }: ProjectFilterProps): React.JS
       e.preventDefault()
       enterPending(e.key)
     } else if (mode === 'pending') {
+      // Ignore bare modifier keys so the user can press Shift+P / Shift+D
+      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt'
+        || e.key === 'Meta') {
+        return
+      }
 
       // Toggle pin/archive action mode (mirrors vim navigation P/D interception)
       if (e.key === 'P') {

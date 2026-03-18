@@ -269,8 +269,8 @@ export function HelpOverlay(): React.JSX.Element | null {
                 label={<MnemonicLabel letter="s" label="Setup" />}
               />
               <ShortcutRow
-                keyContent={<KeyBadge>r</KeyBadge>}
-                label={<MnemonicLabel letter="r" label="Run" />}
+                keyContent={<KeyBadge>u</KeyBadge>}
+                label={<MnemonicLabel letter="u" label="Run" />}
               />
               <ShortcutRow
                 keyContent={<KeyBadge>t</KeyBadge>}
@@ -287,6 +287,15 @@ export function HelpOverlay(): React.JSX.Element | null {
                 }
                 label="Prev / Next file tab"
               />
+            </div>
+
+            {/* ---- Action Shortcuts ---- */}
+            <div>
+              <SectionTitle>Action Shortcuts</SectionTitle>
+              <ShortcutRow keyContent={<KeyBadge>r</KeyBadge>} label={<MnemonicLabel letter="r" label="Review" />} />
+              <ShortcutRow keyContent={<KeyBadge>p</KeyBadge>} label={<MnemonicLabel letter="p" label="PR" />} />
+              <ShortcutRow keyContent={<KeyBadge>m</KeyBadge>} label={<MnemonicLabel letter="m" label="Merge PR" />} />
+              <ShortcutRow keyContent={<KeyBadge>a</KeyBadge>} label={<MnemonicLabel letter="a" label="Archive" />} />
             </div>
 
             {/* ---- Dynamic Sidebar Hints ---- */}
