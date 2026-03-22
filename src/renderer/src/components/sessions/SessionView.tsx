@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
-import { Send, ListPlus, Loader2, AlertCircle, RefreshCw, Square } from 'lucide-react'
+import { Send, ListPlus, Loader2, AlertCircle, RefreshCw, Square, X, Github } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
@@ -41,6 +41,7 @@ import { usePromptHistoryStore } from '@/stores/usePromptHistoryStore'
 import { useWorktreeStore, useDropAttachmentStore } from '@/stores'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
+import { usePRReviewStore } from '@/stores/usePRReviewStore'
 import { useFileTreeStore } from '@/stores/useFileTreeStore'
 import { mapOpencodeMessagesToSessionViewMessages } from '@/lib/opencode-transcript'
 import { appendStreamedAssistantFallback } from '@/lib/transcript-refresh'
@@ -362,6 +363,49 @@ function ErrorState({ message, onRetry }: ErrorStateProps): React.JSX.Element {
         <RefreshCw className="h-4 w-4 mr-2" />
         Retry Connection
       </Button>
+    </div>
+  )
+}
+
+function PrCommentAttachments(): React.JSX.Element | null {
+  const attachedComments = usePRReviewStore((s) => s.attachedComments)
+  const removeAttachment = usePRReviewStore((s) => s.removeAttachment)
+
+  if (attachedComments.length === 0) return null
+
+  return (
+    <div className="flex flex-wrap gap-2 mb-2">
+      {attachedComments.map((c) => {
+        const fileName = c.path.split('/').pop() ?? c.path
+        return (
+          <div
+            key={c.id}
+            className="group relative flex flex-col gap-1 px-3 py-2 rounded-lg bg-background border border-border text-sm max-w-[400px] min-w-[220px]"
+          >
+            <div className="flex items-center gap-2">
+              <Github className="h-3.5 w-3.5 shrink-0 text-foreground" />
+              <img
+                src={c.user.avatarUrl}
+                alt={c.user.login}
+                className="h-4 w-4 rounded-full shrink-0"
+              />
+              <span className="font-medium text-foreground truncate">{c.user.login}</span>
+              <button
+                onClick={() => removeAttachment(c.id)}
+                className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <span className="text-xs text-muted-foreground truncate">
+              {fileName}:{c.line ?? '?'}
+            </span>
+            <span className="text-xs text-muted-foreground line-clamp-2">
+              {c.body.length > 80 ? c.body.slice(0, 80) + '...' : c.body}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -3190,8 +3234,21 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           const askModel = settings.getModelForMode('ask') ?? settings.selectedModel
           const selectedModel = askModel || getModelForRequests()
 
+          // Build PR review comment context for /ask
+          const prAskComments = usePRReviewStore.getState().attachedComments
+          let prAskContext = ''
+          if (prAskComments.length > 0) {
+            prAskContext =
+              prAskComments
+                .map(
+                  (c) =>
+                    `<pr-comment author="${c.user.login}" file="${c.path}" line="${c.line ?? 'file-level'}">\n${c.body}\n<diff-hunk>${c.diffHunk}</diff-hunk>\n</pr-comment>`
+                )
+                .join('\n\n') + '\n\n'
+          }
+
           // Prefix with ASK_MODE_PREFIX to prevent code changes
-          const prefixedQuestion = ASK_MODE_PREFIX + question
+          const prefixedQuestion = prAskContext + ASK_MODE_PREFIX + question
 
           // Add user message to UI immediately (before response)
           setMessages((prev) => [...prev, createLocalMessage('user', prefixedQuestion)])
@@ -3208,6 +3265,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           // Build message parts (support file attachments if any)
           const parts = buildMessageParts(attachments, prefixedQuestion)
           setAttachments([])
+          usePRReviewStore.getState().clearAttachments()
 
           try {
             const result = await window.opencodeOps.prompt(
@@ -3368,6 +3426,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
               lastSentPromptRef.current = trimmedValue
               setAttachments([])
+              usePRReviewStore.getState().clearAttachments()
               const result = await window.opencodeOps.command(
                 worktreePath,
                 opencodeSessionId,
@@ -3385,10 +3444,23 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               const currentMode = useSessionStore.getState().getSessionMode(sessionId)
               const modePrefix =
                 currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX : ''
-              const promptMessage = modePrefix + trimmedValue
+              // Build PR review comment context
+              const prAttachedComments = usePRReviewStore.getState().attachedComments
+              let prContext = ''
+              if (prAttachedComments.length > 0) {
+                prContext =
+                  prAttachedComments
+                    .map(
+                      (c) =>
+                        `<pr-comment author="${c.user.login}" file="${c.path}" line="${c.line ?? 'file-level'}">\n${c.body}\n<diff-hunk>${c.diffHunk}</diff-hunk>\n</pr-comment>`
+                    )
+                    .join('\n\n') + '\n\n'
+              }
+              const promptMessage = prContext + modePrefix + trimmedValue
               lastSentPromptRef.current = promptMessage
               const parts = buildMessageParts(attachments, promptMessage)
               setAttachments([])
+              usePRReviewStore.getState().clearAttachments()
               const result = await window.opencodeOps.prompt(
                 worktreePath,
                 opencodeSessionId,
@@ -3406,13 +3478,26 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             // Regular prompt — existing code (with mode prefix, attachments, etc.)
             const currentMode = useSessionStore.getState().getSessionMode(sessionId)
             const modePrefix = currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX : ''
-            const promptMessage = modePrefix + trimmedValue
+            // Build PR review comment context
+            const prAttachedComments = usePRReviewStore.getState().attachedComments
+            let prContext = ''
+            if (prAttachedComments.length > 0) {
+              prContext =
+                prAttachedComments
+                  .map(
+                    (c) =>
+                      `<pr-comment author="${c.user.login}" file="${c.path}" line="${c.line ?? 'file-level'}">\n${c.body}\n<diff-hunk>${c.diffHunk}</diff-hunk>\n</pr-comment>`
+                  )
+                  .join('\n\n') + '\n\n'
+            }
+            const promptMessage = prContext + modePrefix + trimmedValue
             // Store the full prompt so the stream handler can detect SDK echoes
             // of the user message (the SDK often re-emits the prompt without a
             // role field, making it indistinguishable from assistant text).
             lastSentPromptRef.current = promptMessage
             const parts = buildMessageParts(attachments, promptMessage)
             setAttachments([])
+            usePRReviewStore.getState().clearAttachments()
             const result = await window.opencodeOps.prompt(
               worktreePath,
               opencodeSessionId,
@@ -3430,6 +3515,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         } else {
           // No OpenCode connection - show placeholder
           setAttachments([])
+          usePRReviewStore.getState().clearAttachments()
           console.warn('No OpenCode connection, showing placeholder response')
           setTimeout(() => {
             const placeholderContent =
@@ -4540,6 +4626,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             onClose={fileMentions.dismiss}
             onNavigate={fileMentions.moveSelection}
           />
+          {/* PR review comment attachments — above the input container */}
+          <PrCommentAttachments />
           <div
             className={cn(
               'rounded-xl border-2 transition-colors duration-200 overflow-hidden',
