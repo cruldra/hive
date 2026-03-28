@@ -32,8 +32,10 @@ export function createStaticHandler(
     // Resolve the file path within webRoot
     const resolved = normalize(join(resolvedRoot, pathname))
 
-    // Path traversal prevention: resolved path must stay within webRoot
-    if (!resolved.startsWith(resolvedRoot)) {
+    // Path traversal prevention: resolved path must stay within webRoot.
+    // Compare against resolvedRoot + '/' to prevent prefix collision
+    // (e.g. /tmp/foo matching /tmp/foobar). Allow exact match on root itself.
+    if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + '/')) {
       res.writeHead(403)
       res.end()
       return true
@@ -64,7 +66,7 @@ function serveFile(filePath: string, pathname: string, res: ServerResponse): voi
   const contentType = MIME_TYPES[ext] ?? 'application/octet-stream'
 
   // Cache headers
-  if (pathname === '/index.html' || pathname === '/') {
+  if (pathname === '/index.html') {
     res.setHeader('Cache-Control', 'no-cache')
   } else if (pathname.startsWith('/assets/')) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')

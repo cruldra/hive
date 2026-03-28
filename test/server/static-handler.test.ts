@@ -196,14 +196,8 @@ describe('createStaticHandler', () => {
       const res = mockRes()
       const handled = handler(req, res)
       expect(handled).toBe(true)
-      // Should either 403 or fall through to SPA fallback (not serve /etc/passwd)
-      if (res._statusCode === 403) {
-        expect(res._body).toBeNull()
-      } else {
-        // SPA fallback is also acceptable since the file won't exist in webRoot
-        expect(res._statusCode).toBe(200)
-        expect(res._headers['content-type']).toBe('text/html')
-      }
+      expect(res._statusCode).toBe(403)
+      expect(res._body).toBeNull()
     })
 
     it('blocks encoded traversal', () => {
@@ -211,9 +205,31 @@ describe('createStaticHandler', () => {
       const res = mockRes()
       const handled = handler(req, res)
       expect(handled).toBe(true)
-      // Must not leak files outside webRoot -- either 403 with no body, or SPA fallback
-      const body = res._body?.toString() ?? ''
-      expect(body).not.toContain('root:')
+      expect(res._statusCode).toBe(403)
+      expect(res._body).toBeNull()
+    })
+
+    it('blocks prefix collision path traversal via sibling directory', () => {
+      // Create a sibling directory whose name starts with the same prefix as webRoot
+      // e.g. webRoot = /tmp/test-web, sibling = /tmp/test-web-evil
+      const siblingDir = webRoot + '-evil'
+      mkdirSync(siblingDir, { recursive: true })
+      writeFileSync(join(siblingDir, 'secret.txt'), 'stolen-secret')
+
+      try {
+        // Craft a request that escapes to the sibling via prefix collision:
+        // If webRoot is /tmp/test-web, requesting /../test-web-evil/secret.txt
+        // resolves to /tmp/test-web-evil/secret.txt which would pass a naive
+        // startsWith('/tmp/test-web') check
+        const req = mockReq('/../' + siblingDir.split('/').pop() + '/secret.txt')
+        const res = mockRes()
+        const handled = handler(req, res)
+        expect(handled).toBe(true)
+        expect(res._statusCode).toBe(403)
+        expect(res._body).toBeNull()
+      } finally {
+        rmSync(siblingDir, { recursive: true, force: true })
+      }
     })
   })
 
