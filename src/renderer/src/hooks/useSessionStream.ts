@@ -175,6 +175,7 @@ export function useSessionStream({
 
   useEffect(() => {
     const currentGeneration = ++generationRef.current
+    hasFinalizedRef.current = false
 
     // Part A: Instantly restore streaming indicators from the global status store.
     // This provides immediate UI feedback before async message load completes.
@@ -271,18 +272,25 @@ export function useSessionStream({
               if (childPart?.type === 'text') {
                 updateStreamingPartsRef((parts) => {
                   const updated = [...parts]
-                  const subtask = updated[subtaskIdx as number]
-                  if (subtask?.type === 'subtask' && subtask.subtask) {
-                    const lastPart =
-                      subtask.subtask.parts[subtask.subtask.parts.length - 1]
+                  const orig = updated[subtaskIdx as number]
+                  if (orig?.type === 'subtask' && orig.subtask) {
+                    const oldParts = orig.subtask.parts
+                    const lastPart = oldParts[oldParts.length - 1]
+                    let newChildParts: typeof oldParts
                     if (lastPart?.type === 'text') {
-                      lastPart.text =
-                        (lastPart.text || '') + (event.data?.delta || childPart.text || '')
-                    } else {
-                      subtask.subtask.parts = [
-                        ...subtask.subtask.parts,
-                        { type: 'text', text: event.data?.delta || childPart.text || '' }
+                      newChildParts = [
+                        ...oldParts.slice(0, -1),
+                        { ...lastPart, text: (lastPart.text || '') + (event.data?.delta || childPart.text || '') }
                       ]
+                    } else {
+                      newChildParts = [
+                        ...oldParts,
+                        { type: 'text' as const, text: event.data?.delta || childPart.text || '' }
+                      ]
+                    }
+                    updated[subtaskIdx as number] = {
+                      ...orig,
+                      subtask: { ...orig.subtask, parts: newChildParts }
                     }
                   }
                   return updated
@@ -294,39 +302,55 @@ export function useSessionStream({
                   state.toolCallId || childPart.callID || childPart.id || `tool-${Date.now()}`
                 updateStreamingPartsRef((parts) => {
                   const updated = [...parts]
-                  const subtask = updated[subtaskIdx as number]
-                  if (subtask?.type === 'subtask' && subtask.subtask) {
-                    const existing = subtask.subtask.parts.find(
+                  const orig = updated[subtaskIdx as number]
+                  if (orig?.type === 'subtask' && orig.subtask) {
+                    const existingIdx = orig.subtask.parts.findIndex(
                       (p) => p.type === 'tool_use' && p.toolUse?.id === toolId
                     )
-                    if (existing && existing.type === 'tool_use' && existing.toolUse) {
+                    let newChildParts: typeof orig.subtask.parts
+                    if (existingIdx >= 0) {
+                      const existingTool = orig.subtask.parts[existingIdx].toolUse!
                       const statusMap: Record<string, string> = {
                         running: 'running',
                         completed: 'success',
                         error: 'error'
                       }
-                      existing.toolUse.status = (statusMap[state.status] || 'running') as
-                        | 'pending'
-                        | 'running'
-                        | 'success'
-                        | 'error'
-                      if (state.time?.end) existing.toolUse.endTime = state.time.end
-                      if (state.status === 'completed') existing.toolUse.output = state.output
-                      if (state.status === 'error') existing.toolUse.error = state.error
-                    } else {
-                      subtask.subtask.parts = [
-                        ...subtask.subtask.parts,
+                      newChildParts = [
+                        ...orig.subtask.parts.slice(0, existingIdx),
                         {
-                          type: 'tool_use',
+                          type: 'tool_use' as const,
+                          toolUse: {
+                            ...existingTool,
+                            status: (statusMap[state.status] || 'running') as
+                              | 'pending'
+                              | 'running'
+                              | 'success'
+                              | 'error',
+                            ...(state.time?.end ? { endTime: state.time.end } : {}),
+                            ...(state.status === 'completed' ? { output: state.output } : {}),
+                            ...(state.status === 'error' ? { error: state.error } : {})
+                          }
+                        },
+                        ...orig.subtask.parts.slice(existingIdx + 1)
+                      ]
+                    } else {
+                      newChildParts = [
+                        ...orig.subtask.parts,
+                        {
+                          type: 'tool_use' as const,
                           toolUse: {
                             id: toolId,
                             name: childPart.tool || state.name || 'unknown',
                             input: state.input,
-                            status: 'running',
+                            status: 'running' as const,
                             startTime: state.time?.start || Date.now()
                           }
                         }
                       ]
+                    }
+                    updated[subtaskIdx as number] = {
+                      ...orig,
+                      subtask: { ...orig.subtask, parts: newChildParts }
                     }
                   }
                   return updated
@@ -474,9 +498,12 @@ export function useSessionStream({
               if (subtaskIdx !== undefined) {
                 updateStreamingPartsRef((parts) => {
                   const updated = [...parts]
-                  const subtask = updated[subtaskIdx]
-                  if (subtask?.type === 'subtask' && subtask.subtask) {
-                    subtask.subtask.status = 'completed'
+                  const orig = updated[subtaskIdx]
+                  if (orig?.type === 'subtask' && orig.subtask) {
+                    updated[subtaskIdx] = {
+                      ...orig,
+                      subtask: { ...orig.subtask, status: 'completed' }
+                    }
                   }
                   return updated
                 })
@@ -571,6 +598,15 @@ export function useSessionStream({
               if (restoredParts.length > 0) {
                 streamingPartsRef.current = restoredParts
                 setStreamingParts([...restoredParts])
+
+                // Rebuild childToSubtaskIndexRef so child session events
+                // use correct indices into the newly restored parts array.
+                childToSubtaskIndexRef.current.clear()
+                restoredParts.forEach((p, idx) => {
+                  if (p.type === 'subtask' && p.subtask?.sessionID) {
+                    childToSubtaskIndexRef.current.set(p.subtask.sessionID, idx)
+                  }
+                })
 
                 const textParts = restoredParts.filter((p) => p.type === 'text')
                 const content = textParts.map((p) => p.text || '').join('')
