@@ -47,7 +47,10 @@ export const kanbanMutationResolvers: Resolvers = {
         title: input.title,
         description: input.description ?? null,
         column: input.column as 'todo' | 'in_progress' | 'review' | 'done',
-        sort_order: input.sortOrder ?? 0
+        sort_order: input.sortOrder ?? 0,
+        external_provider: input.externalProvider ?? null,
+        external_id: input.externalId ?? null,
+        external_url: input.externalUrl ?? null
       })
       return mapKanbanTicket(row)
     },

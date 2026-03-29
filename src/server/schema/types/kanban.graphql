@@ -17,6 +17,9 @@ type KanbanTicket {
   archived: Boolean!
   createdAt: String!
   updatedAt: String!
+  externalProvider: String
+  externalId: String
+  externalUrl: String
 }
 
 type TicketFollowupMessage {
@@ -34,6 +37,9 @@ input KanbanCreateTicketInput {
   description: String
   column: KanbanTicketColumn!
   sortOrder: Float
+  externalProvider: String
+  externalId: String
+  externalUrl: String
 }
 
 input KanbanUpdateTicketInput {

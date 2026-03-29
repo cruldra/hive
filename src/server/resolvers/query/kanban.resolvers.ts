@@ -18,7 +18,10 @@ function mapKanbanTicket(row: any) {
     sortOrder: row.sort_order,
     archived: !!row.archived_at,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    externalProvider: row.external_provider ?? null,
+    externalId: row.external_id ?? null,
+    externalUrl: row.external_url ?? null
   }
 }
 
