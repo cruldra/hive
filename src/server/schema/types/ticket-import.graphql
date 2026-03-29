@@ -1,8 +1,3 @@
-enum RemoteIssueState {
-  open
-  closed
-}
-
 type TicketProviderInfo {
   id: String!
   name: String!

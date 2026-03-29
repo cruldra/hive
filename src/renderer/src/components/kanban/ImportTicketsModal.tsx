@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Download, Search, ExternalLink, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   Dialog,
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useKanbanStore } from '@/stores/useKanbanStore'
+import { getProviderSettings } from '@/lib/provider-settings'
 import { toast } from 'sonner'
 
 interface RemoteIssue {
@@ -59,22 +60,6 @@ export function ImportTicketsModal({
 
   const effectiveRepo = repo ?? (manualRepo.includes('/') ? manualRepo.trim() : null)
 
-  const getProviderSettings = useCallback((): Record<string, string> => {
-    // Read github_pat from app settings if stored
-    try {
-      const raw = localStorage.getItem('hive-settings')
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (parsed?.state?.github_pat) {
-          return { github_pat: parsed.state.github_pat }
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return {}
-  }, [])
-
   // Auto-detect repo on open
   useEffect(() => {
     if (!open) return
@@ -121,7 +106,7 @@ export function ImportTicketsModal({
         setIssues([])
       })
       .finally(() => setLoading(false))
-  }, [open, effectiveRepo, page, search, showClosed, getProviderSettings])
+  }, [open, effectiveRepo, page, search, showClosed])
 
   // Search debounce
   useEffect(() => {

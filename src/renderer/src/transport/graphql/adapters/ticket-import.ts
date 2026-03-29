@@ -136,10 +136,10 @@ export function createTicketImportAdapter() {
       settings: Record<string, string>
     ) {
       const result = await graphqlQuery<{
-        ticketImportUpdateRemoteStatus: { success: boolean }
+        ticketImportUpdateRemoteStatus: { success: boolean; error: string | null }
       }>(
         `mutation ($input: UpdateRemoteStatusInput!, $settings: String!) {
-          ticketImportUpdateRemoteStatus(input: $input, settings: $settings) { success }
+          ticketImportUpdateRemoteStatus(input: $input, settings: $settings) { success error }
         }`,
         {
           input: { providerId, repo, externalId, statusId },

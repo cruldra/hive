@@ -52,7 +52,7 @@ export const ticketImportMutationResolvers: Resolvers = {
         input.statusId,
         settings
       )
-      return { success: result.success }
+      return { success: result.success, error: result.error ?? null }
     }
   }
 }

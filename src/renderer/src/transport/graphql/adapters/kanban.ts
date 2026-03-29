@@ -23,6 +23,9 @@ interface GqlKanbanTicket {
   archived: boolean
   createdAt: string
   updatedAt: string
+  externalProvider: string | null
+  externalId: string | null
+  externalUrl: string | null
 }
 
 interface GqlTicketFollowupMessage {
@@ -47,7 +50,10 @@ function mapTicket(t: GqlKanbanTicket) {
     plan_ready: false,
     created_at: t.createdAt,
     updated_at: t.updatedAt,
-    archived_at: t.archived ? t.updatedAt : null
+    archived_at: t.archived ? t.updatedAt : null,
+    external_provider: t.externalProvider ?? null,
+    external_id: t.externalId ?? null,
+    external_url: t.externalUrl ?? null
   }
 }
 
@@ -68,7 +74,7 @@ function mapFollowup(f: GqlTicketFollowupMessage) {
   }
 }
 
-const TICKET_FIELDS = `id projectId sessionId worktreeId title description column sortOrder archived createdAt updatedAt`
+const TICKET_FIELDS = `id projectId sessionId worktreeId title description column sortOrder archived createdAt updatedAt externalProvider externalId externalUrl`
 const FOLLOWUP_FIELDS = `id ticketId message createdAt`
 
 export function createKanbanAdapter(): KanbanApi {

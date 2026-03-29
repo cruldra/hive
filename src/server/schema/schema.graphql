@@ -238,7 +238,7 @@ type Mutation {
   # --- Ticket Import ---
   ticketImportAuthenticate(providerId: String!, settings: String!): AuthResult!
   ticketImportIssues(input: ImportIssuesInput!): ImportResult!
-  ticketImportUpdateRemoteStatus(input: UpdateRemoteStatusInput!, settings: String!): SuccessResult!
+  ticketImportUpdateRemoteStatus(input: UpdateRemoteStatusInput!, settings: String!): AuthResult!
 
   # --- Kanban ---
   kanbanCreateTicket(input: KanbanCreateTicketInput!): KanbanTicket!

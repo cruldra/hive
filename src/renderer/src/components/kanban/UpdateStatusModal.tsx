@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { getProviderSettings } from '@/lib/provider-settings'
 import { Loader2, RefreshCw } from 'lucide-react'
 import {
   Dialog,
@@ -29,21 +30,6 @@ export function UpdateStatusModal({
   const [statuses, setStatuses] = useState<Array<{ id: string; label: string }>>([])
   const [loading, setLoading] = useState(false)
   const [updating, setUpdating] = useState(false)
-
-  const getProviderSettings = (): Record<string, string> => {
-    try {
-      const raw = localStorage.getItem('hive-settings')
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (parsed?.state?.github_pat) {
-          return { github_pat: parsed.state.github_pat }
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return {}
-  }
 
   const getRepoFromUrl = (): string | null => {
     const match = externalUrl.match(/github\.com\/([^/]+\/[^/]+)/)
