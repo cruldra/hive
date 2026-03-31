@@ -2826,10 +2826,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               setSessionRetry({})
             }
 
-            // Refresh transcript using the confirmed live OpenCode session ID.
-            // This avoids keeping a stale/partial pre-connect transcript.
-            await loadMessages({ worktreePath: wtPath, opencodeSessionId: existingOpcSessionId })
-            if (shouldAbortInit()) return
+            // Only reload transcript if the session was busy (new messages may have arrived
+            // between first load and reconnect completion). For idle sessions the first load
+            // at line 2482 already has the complete transcript.
+            if (reconnectResult.sessionStatus === 'busy') {
+              await loadMessages({ worktreePath: wtPath, opencodeSessionId: existingOpcSessionId })
+              if (shouldAbortInit()) return
+            }
 
             await sendPendingMessage(wtPath, existingOpcSessionId)
             return
