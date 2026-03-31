@@ -7,7 +7,7 @@ import { toast } from '@/lib/toast'
 import { ModeToggle } from './ModeToggle'
 import { SuperToggle } from './SuperToggle'
 import { ModelSelector } from './ModelSelector'
-import { VirtualizedMessageList } from './VirtualizedMessageList'
+import { VirtualizedMessageList, type VirtualizedMessageListHandle } from './VirtualizedMessageList'
 import { ContextIndicator } from './ContextIndicator'
 import { AttachmentButton } from './AttachmentButton'
 import { AttachmentPreview } from './AttachmentPreview'
@@ -625,7 +625,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const streamingContentRef = useRef<string>('')
 
   // Refs
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const virtualizedListRef = useRef<VirtualizedMessageListHandle>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
@@ -809,9 +809,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   // Auto-scroll to bottom when new messages arrive or streaming updates
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = isStreaming ? 'instant' : 'smooth') => {
-      if (!messagesEndRef.current) return
       markProgrammaticScroll()
-      messagesEndRef.current.scrollIntoView({ behavior })
+      virtualizedListRef.current?.scrollToEnd(behavior)
     },
     [isStreaming, markProgrammaticScroll]
   )
@@ -2842,10 +2841,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               setSessionRetry({})
             }
 
-            // Only reload transcript if the session was busy (new messages may have arrived
-            // between first load and reconnect completion). For idle sessions the first load
-            // at line 2482 already has the complete transcript.
-            if (reconnectResult.sessionStatus === 'busy') {
+            // Reload transcript for busy/retry sessions (new messages may have arrived
+            // between first load and reconnect completion). For idle sessions the first
+            // load already has the complete transcript.
+            if (reconnectResult.sessionStatus !== 'idle') {
               await loadMessages({ worktreePath: wtPath, opencodeSessionId: existingOpcSessionId })
               if (shouldAbortInit()) return
             }
@@ -4562,13 +4561,20 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   // Determine if there's streaming content to show
   const hasStreamingContent = streamingParts.length > 0 || streamingContent.length > 0
 
+  const streamingStartTimeRef = useRef<string>('')
   const streamingMessage = useMemo(() => {
-    if (!hasStreamingContent) return null
+    if (!hasStreamingContent) {
+      streamingStartTimeRef.current = ''
+      return null
+    }
+    if (!streamingStartTimeRef.current) {
+      streamingStartTimeRef.current = new Date().toISOString()
+    }
     return {
       id: 'streaming' as const,
       role: 'assistant' as const,
       content: streamingContent,
-      timestamp: new Date().toISOString(),
+      timestamp: streamingStartTimeRef.current,
       parts: streamingParts
     }
   }, [hasStreamingContent, streamingContent, streamingParts])
@@ -4739,6 +4745,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             </div>
           ) : (
             <VirtualizedMessageList
+              ref={virtualizedListRef}
               messages={visibleMessages}
               streamingMessage={streamingMessage}
               isStreaming={isStreaming}
@@ -4758,7 +4765,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               queuedMessages={queuedMessages}
               completionEntry={completionEntry}
               scrollElement={scrollElement}
-              messagesEndRef={messagesEndRef}
             />
           )}
         </div>
