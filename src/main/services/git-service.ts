@@ -1003,7 +1003,7 @@ export class GitService {
       await this.git.raw(['merge', '--abort'])
       return { success: true }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? error.message : String(error)
       return { success: false, error: message }
     }
   }
@@ -1027,7 +1027,7 @@ export class GitService {
   }> {
     try {
       // Get file/line stats
-      const shortstat = await this.git.raw(['diff', '--shortstat', baseBranch])
+      const shortstat = await this.git.raw(['diff', '--shortstat', `${baseBranch}...HEAD`])
       let filesChanged = 0, insertions = 0, deletions = 0
       // Parse "N files changed, N insertions(+), N deletions(-)"
       const filesMatch = shortstat.match(/(\d+) files? changed/)
@@ -1043,7 +1043,7 @@ export class GitService {
 
       return { success: true, filesChanged, insertions, deletions, commitsAhead }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? error.message : String(error)
       return { success: false, filesChanged: 0, insertions: 0, deletions: 0, commitsAhead: 0, error: message }
     }
   }

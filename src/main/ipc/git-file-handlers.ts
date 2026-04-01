@@ -483,7 +483,7 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
         const gitService = createGitService(worktreePath)
         return await gitService.mergeAbort()
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error'
+        const message = error instanceof Error ? error.message : String(error)
         log.error('Failed to abort merge', error instanceof Error ? error : new Error(message), {
           worktreePath
         })
@@ -508,12 +508,19 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
   // Get branch divergence stats (files changed, insertions, deletions, commits ahead)
   ipcMain.handle(
     'git:branchDiffShortStat',
-    async (_event, worktreePath: string, baseBranch: string) => {
+    async (_event, worktreePath: string, baseBranch: string): Promise<{
+      success: boolean
+      filesChanged: number
+      insertions: number
+      deletions: number
+      commitsAhead: number
+      error?: string
+    }> => {
       try {
         const gitService = createGitService(worktreePath)
         return await gitService.getBranchDiffShortStat(baseBranch)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error'
+        const message = error instanceof Error ? error.message : String(error)
         log.error('Failed to get branch diff stat', error instanceof Error ? error : new Error(message), {
           worktreePath,
           baseBranch
