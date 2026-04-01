@@ -63,7 +63,7 @@ export function KanbanBoard({ projectId, projectPath: _projectPath, connectionId
     <LayoutGroup>
       <div className="flex flex-1 flex-col min-h-0">
         {isPinnedMode && (
-          <div className="flex items-center gap-2 px-4 pt-3 pb-0">
+          <div className="flex items-center gap-2 px-3 pt-3 pb-0">
             <Pin className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-medium text-muted-foreground">
               Pinned Projects ({pinnedProjectIdsArray.length})
@@ -82,7 +82,7 @@ export function KanbanBoard({ projectId, projectPath: _projectPath, connectionId
           <motion.div
             layoutScroll
             data-testid="kanban-board"
-            className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-4"
+            className="flex flex-1 min-h-0 gap-3 overflow-x-auto p-3"
           >
             {COLUMNS.map((column) => {
               const tickets = isPinnedMode

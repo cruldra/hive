@@ -389,7 +389,7 @@ export function KanbanColumn({ column, tickets, archivedTickets, projectId, conn
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        'flex flex-1 min-w-[240px] max-w-[360px] flex-col rounded-lg border-2 bg-card/50 p-2 transition-all duration-200',
+        'flex flex-1 min-w-[220px] max-w-[300px] flex-col rounded-lg border-2 bg-card/50 p-2 transition-all duration-200',
         isDragOver
           ? 'border-dashed border-primary bg-primary/[0.03]'
           : isDragging
@@ -490,7 +490,7 @@ export function KanbanColumn({ column, tickets, archivedTickets, projectId, conn
                 <button
                   data-testid="kanban-add-ticket-card"
                   onClick={() => setIsCreateModalOpen(true)}
-                  className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border/60 p-3 text-sm text-muted-foreground/60 hover:border-primary/40 hover:text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer"
+                  className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border/60 p-2 text-sm text-muted-foreground/60 hover:border-primary/40 hover:text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer"
                 >
                   <Plus className="h-4 w-4" />
                   <span>New ticket</span>
@@ -540,7 +540,7 @@ export function KanbanColumn({ column, tickets, archivedTickets, projectId, conn
                 <button
                   data-testid="kanban-add-ticket-card"
                   onClick={() => setIsCreateModalOpen(true)}
-                  className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border/60 p-3 text-sm text-muted-foreground/60 hover:border-primary/40 hover:text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer"
+                  className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border/60 p-2 text-sm text-muted-foreground/60 hover:border-primary/40 hover:text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer"
                 >
                   <Plus className="h-4 w-4" />
                   <span>New ticket</span>
