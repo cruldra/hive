@@ -415,7 +415,7 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
             onDragEnd={handleDragEnd}
             onClick={handleClick}
             className={cn(
-              'group cursor-pointer rounded-md border bg-card shadow-sm p-3 transition-all duration-200',
+              'group cursor-pointer rounded-md border bg-card shadow-sm p-2 transition-all duration-200',
               'hover:bg-muted/40',
               isDragging && 'invisible',
               isArchived && 'opacity-50 cursor-default',
@@ -452,7 +452,7 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
 
             {/* Badges + progress row */}
             {(hasAttachments || worktreeName || projectTag || connectionName || ticket.plan_ready || isError || isBusy || isAsking || isArchived || isRunProcessAlive) && (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 {/* Archived badge */}
                 {isArchived && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
