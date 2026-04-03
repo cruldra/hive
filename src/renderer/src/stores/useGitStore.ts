@@ -421,13 +421,6 @@ export const useGitStore = create<GitStoreState>()((set, get) => ({
     })
     try {
       const result = await window.db.worktree.attachPR(worktreeId, prNumber, prUrl)
-      // Sync PR to linked kanban tickets
-      try {
-        await window.kanban.ticket.syncPR(worktreeId, prNumber, prUrl)
-        useKanbanStore.getState().syncPRToTicket(worktreeId, prNumber, prUrl)
-      } catch {
-        // Non-critical — ticket badge sync failure should not block PR attach
-      }
       if (!result.success) {
         // Rollback on failure
         set((s) => {
@@ -439,6 +432,14 @@ export const useGitStore = create<GitStoreState>()((set, get) => ({
           }
           return { attachedPR: newMap }
         })
+      } else {
+        // Sync PR to linked kanban tickets (only on success)
+        try {
+          await window.kanban.ticket.syncPR(worktreeId, prNumber, prUrl)
+          useKanbanStore.getState().syncPRToTicket(worktreeId, prNumber, prUrl)
+        } catch {
+          // Non-critical — ticket badge sync failure should not block PR attach
+        }
       }
     } catch {
       // Rollback on error
@@ -465,13 +466,6 @@ export const useGitStore = create<GitStoreState>()((set, get) => ({
     })
     try {
       const result = await window.db.worktree.detachPR(worktreeId)
-      // Clear PR from linked kanban tickets
-      try {
-        await window.kanban.ticket.clearPR(worktreeId)
-        useKanbanStore.getState().clearPRFromTicket(worktreeId)
-      } catch {
-        // Non-critical
-      }
       if (!result.success) {
         // Rollback on failure
         set((s) => {
@@ -479,6 +473,14 @@ export const useGitStore = create<GitStoreState>()((set, get) => ({
           if (prev) newMap.set(worktreeId, prev)
           return { attachedPR: newMap }
         })
+      } else {
+        // Clear PR from linked kanban tickets (only on success)
+        try {
+          await window.kanban.ticket.clearPR(worktreeId)
+          useKanbanStore.getState().clearPRFromTicket(worktreeId)
+        } catch {
+          // Non-critical
+        }
       }
     } catch {
       // Rollback on error

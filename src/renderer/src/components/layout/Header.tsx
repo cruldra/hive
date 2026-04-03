@@ -352,12 +352,12 @@ export function Header(): React.JSX.Element {
           isGitHub &&
           hasAttachedPR &&
           prLiveState?.state === 'MERGED' &&
-          !selectedWorktree?.is_default && (
+          !lifecycle.isDefault && (
             <Button
               size="sm"
               variant="destructive"
               className="h-7 text-xs"
-              onClick={lifecycle.archiveWorktree}
+              onClick={() => lifecycle.archiveWorktree()}
               disabled={isArchivingWorktree}
               title="Archive worktree"
               data-testid="pr-archive-button"
@@ -388,7 +388,7 @@ export function Header(): React.JSX.Element {
               size="sm"
               variant="outline"
               className="h-7 text-xs bg-emerald-600/10 border-emerald-600/30 text-emerald-500 hover:bg-emerald-600/20"
-              onClick={lifecycle.mergePR}
+              onClick={() => lifecycle.mergePR()}
               disabled={isMergingPR}
               title="Merge Pull Request"
               data-testid="pr-merge-button"
@@ -415,7 +415,7 @@ export function Header(): React.JSX.Element {
               size="sm"
               variant="outline"
               className="h-7 text-xs"
-              onClick={lifecycle.createCodeReview}
+              onClick={() => lifecycle.createCodeReview()}
               disabled={isOperating}
               title="Review branch changes with AI"
               data-testid="review-button"
@@ -588,7 +588,7 @@ export function Header(): React.JSX.Element {
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs"
-                onClick={lifecycle.createPR}
+                onClick={() => lifecycle.createPR()}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setPrPickerOpen(true)

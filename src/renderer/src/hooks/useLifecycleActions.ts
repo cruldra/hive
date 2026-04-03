@@ -114,10 +114,9 @@ export function useLifecycleActions(worktreeId: string | null): LifecycleActions
     worktreeId ? s.reviewTargetBranch.get(worktreeId) : undefined
   )
 
-  const branchInfoByWorktree = useGitStore((s) => s.branchInfoByWorktree)
-  const branchInfo = worktree?.path
-    ? branchInfoByWorktree.get(worktree.path) ?? null
-    : null
+  const branchInfo = useGitStore((s) =>
+    worktree?.path ? s.branchInfoByWorktree.get(worktree.path) ?? null : null
+  )
 
   const fileStatuses = useGitStore((s) =>
     worktree?.path ? s.fileStatusesByWorktree.get(worktree.path) : undefined

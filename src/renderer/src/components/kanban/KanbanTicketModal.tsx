@@ -748,7 +748,25 @@ function EditModeContent({
   const [attachUrl, setAttachUrl] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const lifecycle = useLifecycleActions(ticket.worktree_id)
+  const [lifecycleLoading, setLifecycleLoading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  const pinAndActivateSession = useCallback(async (createFn: () => Promise<string | null>) => {
+    setLifecycleLoading(true)
+    try {
+      const sessionId = await createFn()
+      if (sessionId) {
+        const sessionStore = useSessionStore.getState()
+        await sessionStore.pinSessionToBoard(sessionId)
+        sessionStore.setActivePinnedSession(sessionId)
+        onClose()
+      }
+    } catch {
+      // Session creation itself shows toasts; nothing extra needed
+    } finally {
+      setLifecycleLoading(false)
+    }
+  }, [onClose])
 
   const detectedAttachment = attachUrl.trim() ? parseAttachmentUrl(attachUrl.trim()) : null
 
@@ -1009,15 +1027,8 @@ function EditModeContent({
               type="button"
               variant="outline"
               className="gap-1.5"
-              onClick={async () => {
-                const sessionId = await lifecycle.createCodeReview()
-                if (sessionId) {
-                  const sessionStore = useSessionStore.getState()
-                  await sessionStore.pinSessionToBoard(sessionId)
-                  sessionStore.setActivePinnedSession(sessionId)
-                  onClose()
-                }
-              }}
+              disabled={lifecycleLoading}
+              onClick={() => pinAndActivateSession(() => lifecycle.createCodeReview())}
             >
               <FileSearch className="h-3.5 w-3.5" />
               Review
@@ -1047,8 +1058,8 @@ function EditModeContent({
               variant="outline"
               className="gap-1.5 border-red-500/30 text-red-500 hover:bg-red-500/10"
               onClick={async () => {
-                await lifecycle.archiveWorktree()
-                onClose()
+                const success = await lifecycle.archiveWorktree()
+                if (success) onClose()
               }}
               disabled={lifecycle.isArchiving}
             >
@@ -1596,6 +1607,24 @@ function ReviewModeContent({
   const [isSending, setIsSending] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const lifecycle = useLifecycleActions(ticket.worktree_id)
+  const [lifecycleLoading, setLifecycleLoading] = useState(false)
+
+  const pinAndActivateSession = useCallback(async (createFn: () => Promise<string | null>) => {
+    setLifecycleLoading(true)
+    try {
+      const sessionId = await createFn()
+      if (sessionId) {
+        const sessionStore = useSessionStore.getState()
+        await sessionStore.pinSessionToBoard(sessionId)
+        sessionStore.setActivePinnedSession(sessionId)
+        onClose()
+      }
+    } catch {
+      // Session creation itself shows toasts; nothing extra needed
+    } finally {
+      setLifecycleLoading(false)
+    }
+  }, [onClose])
 
   // Display ticket description as context, with notice to view session for full conversation
   const reviewDescription = ticket.description ?? null
@@ -1891,15 +1920,8 @@ function ReviewModeContent({
             type="button"
             variant="outline"
             className="gap-1.5"
-            onClick={async () => {
-              const sessionId = await lifecycle.createCodeReview()
-              if (sessionId) {
-                const sessionStore = useSessionStore.getState()
-                await sessionStore.pinSessionToBoard(sessionId)
-                sessionStore.setActivePinnedSession(sessionId)
-                onClose()
-              }
-            }}
+            disabled={lifecycleLoading}
+            onClick={() => pinAndActivateSession(() => lifecycle.createCodeReview())}
           >
             <FileSearch className="h-3.5 w-3.5" />
             Review
@@ -1910,15 +1932,8 @@ function ReviewModeContent({
             type="button"
             variant="outline"
             className="gap-1.5"
-            onClick={async () => {
-              const sessionId = await lifecycle.createPR()
-              if (sessionId) {
-                const sessionStore = useSessionStore.getState()
-                await sessionStore.pinSessionToBoard(sessionId)
-                sessionStore.setActivePinnedSession(sessionId)
-                onClose()
-              }
-            }}
+            disabled={lifecycleLoading}
+            onClick={() => pinAndActivateSession(() => lifecycle.createPR())}
           >
             <GitPullRequest className="h-3.5 w-3.5" />
             Create PR

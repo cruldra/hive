@@ -104,7 +104,9 @@ export class DatabaseService {
     } as Worktree
   }
 
-  // Maps SQLite INTEGER 0/1 to boolean for session rows
+  // Maps SQLite INTEGER 0/1 to boolean for session rows.
+  // NOTE: If future boolean or JSON columns are added to sessions, they must be
+  // explicitly mapped here (the spread passes raw SQLite values through).
   private mapSessionRow(row: Record<string, unknown>): Session {
     return {
       ...row,
@@ -955,7 +957,7 @@ export class DatabaseService {
     if (!existing) return null
 
     const updates: string[] = ['updated_at = ?']
-    const values: (string | null)[] = [new Date().toISOString()]
+    const values: (string | number | null)[] = [new Date().toISOString()]
 
     if (data.name !== undefined) {
       updates.push('name = ?')
@@ -995,7 +997,7 @@ export class DatabaseService {
     }
     if (data.pinned_to_board !== undefined) {
       updates.push('pinned_to_board = ?')
-      values.push(data.pinned_to_board ? '1' : '0')
+      values.push(data.pinned_to_board ? 1 : 0)
     }
 
     values.push(id)

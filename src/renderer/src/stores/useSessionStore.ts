@@ -569,6 +569,10 @@ export const useSessionStore = create<SessionState>()(
               ? new Set([...state.closedTerminalSessionIds, sessionId])
               : state.closedTerminalSessionIds
 
+            // Clean up pinned session state if the closed session was pinned
+            const newPinnedIds = new Set(state.pinnedSessionIds)
+            newPinnedIds.delete(sessionId)
+
             return {
               sessionsByWorktree: newWorktreeSessionsMap,
               tabOrderByWorktree: newWorktreeTabOrderMap,
@@ -577,7 +581,10 @@ export const useSessionStore = create<SessionState>()(
               activeSessionId: newActiveSessionId,
               activeSessionByWorktree: newActiveByWorktree,
               activeSessionByConnection: newActiveByConnection,
-              closedTerminalSessionIds: newClosedTerminals
+              closedTerminalSessionIds: newClosedTerminals,
+              pinnedSessionIds: newPinnedIds,
+              activePinnedSessionId:
+                state.activePinnedSessionId === sessionId ? null : state.activePinnedSessionId
             }
           })
 
@@ -1743,7 +1750,11 @@ export const useSessionStore = create<SessionState>()(
           set((state) => {
             const newPinnedIds = new Set(state.pinnedSessionIds)
             newPinnedIds.delete(sessionId)
-            return { pinnedSessionIds: newPinnedIds }
+            return {
+              pinnedSessionIds: newPinnedIds,
+              activePinnedSessionId:
+                state.activePinnedSessionId === sessionId ? null : state.activePinnedSessionId
+            }
           })
         }
       },
