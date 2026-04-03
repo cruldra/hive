@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import {
   Shield,
   Terminal,
@@ -231,6 +231,7 @@ function buildDefaultSubPatterns(groups: SubCommandSuggestions[]): Record<number
 export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromptProps) {
   const [sending, setSending] = useState(false)
   const [patternPickerMode, setPatternPickerMode] = useState<'allow' | 'block' | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // For flat (single command / block always) picker
   const flatSuggestions = useMemo(
@@ -342,6 +343,11 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
     }
   }, [sending, flatSuggestions, onReply, request.id])
 
+  // Auto-focus the approval prompt when it appears so Enter key works immediately
+  useEffect(() => {
+    containerRef.current?.focus()
+  }, [])
+
   // Enter key handler: approve once (default) or confirm pattern if picker is open
   // Only enabled when user has opted in via settings, and skips when user is typing in chat
   const enterToApproveEnabled = commandFilter.enterToApprove
@@ -354,7 +360,9 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
 
   return (
     <div
-      className="rounded-md border border-border bg-zinc-900/50 overflow-hidden"
+      ref={containerRef}
+      tabIndex={-1}
+      className="rounded-md border border-border bg-zinc-900/50 overflow-hidden outline-none"
       data-testid="command-approval-prompt"
     >
       {/* Header */}
