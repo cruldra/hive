@@ -197,13 +197,19 @@ export function useLifecycleActions(worktreeId: string | null): LifecycleActions
   }, [worktreeId, worktree?.path])
 
   const createCodeReview = useCallback(async (targetBranch?: string): Promise<string | null> => {
-    if (!worktreeId || !worktree?.path) return null
+    if (!worktreeId || !worktree?.path) {
+      console.error('[createCodeReview] No worktreeId or worktree.path', { worktreeId, path: worktree?.path })
+      return null
+    }
 
     const projectId = resolveProjectId(worktreeId)
     if (!projectId) {
+      console.error('[createCodeReview] resolveProjectId returned null', { worktreeId })
       toast.error('Could not find project for worktree')
       return null
     }
+
+    console.log('[createCodeReview] Starting', { worktreeId, projectId, path: worktree.path })
 
     const currentBranchInfo = useGitStore.getState().branchInfoByWorktree.get(worktree.path)
     const currentReviewTarget = useGitStore.getState().reviewTargetBranch.get(worktreeId)
@@ -216,8 +222,8 @@ export function useLifecycleActions(worktreeId: string | null): LifecycleActions
       if (tmpl.success && tmpl.content) {
         reviewTemplate = tmpl.content
       }
-    } catch {
-      // readPrompt failed, use fallback
+    } catch (err) {
+      console.warn('[createCodeReview] readPrompt failed', err)
     }
 
     const prompt = reviewTemplate
@@ -236,7 +242,9 @@ export function useLifecycleActions(worktreeId: string | null): LifecycleActions
         ].join('\n')
 
     const sessionStore = useSessionStore.getState()
+    console.log('[createCodeReview] Calling createSession', { worktreeId, projectId })
     const result = await sessionStore.createSession(worktreeId, projectId)
+    console.log('[createCodeReview] createSession result', { success: result.success, hasSession: !!result.session, error: (result as any).error })
     if (!result.success || !result.session) {
       toast.error('Failed to create review session')
       return null

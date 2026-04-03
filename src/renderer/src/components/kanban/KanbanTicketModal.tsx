@@ -89,15 +89,17 @@ function usePinAndActivateSession(onClose: () => void) {
   const pinAndActivate = useCallback(async (createFn: () => Promise<string | null>) => {
     setLoading(true)
     try {
+      console.log('[pinAndActivate] Calling createFn')
       const sessionId = await createFn()
+      console.log('[pinAndActivate] createFn returned', { sessionId })
       if (sessionId) {
         const sessionStore = useSessionStore.getState()
         await sessionStore.pinSessionToBoard(sessionId)
         sessionStore.setActivePinnedSession(sessionId)
         onClose()
       }
-    } catch {
-      // Session creation itself shows toasts; nothing extra needed
+    } catch (err) {
+      console.error('[pinAndActivate] Error in createFn or pin flow', err)
     } finally {
       setLoading(false)
     }
