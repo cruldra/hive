@@ -921,14 +921,15 @@ export function Header(): React.JSX.Element {
           variant="ghost"
           size="icon"
           onClick={() => {
+            const fileStore = useFileViewerStore.getState()
             if (!isBoardViewActive) {
-              // Clear any active file/diff/context views so the board can render
-              const fileStore = useFileViewerStore.getState()
-              fileStore.setActiveFile(null)
-              fileStore.clearActiveDiff()
-              fileStore.closeContextEditor()
+              fileStore.clearActiveViews()
+              toggleBoardView()
+            } else if (fileStore.hasActiveOverlay()) {
+              fileStore.clearActiveViews()
+            } else {
+              toggleBoardView()
             }
-            toggleBoardView()
           }}
           title={isBoardViewActive ? 'Close Board' : 'Open Board'}
           data-testid="kanban-board-toggle"
