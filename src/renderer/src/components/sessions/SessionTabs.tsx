@@ -1088,9 +1088,7 @@ export function SessionTabs(): React.JSX.Element | null {
             <div
               data-testid="kanban-board-tab"
               onClick={() => {
-                setActiveFile(null)
-                useFileViewerStore.getState().clearActiveDiff()
-                useFileViewerStore.getState().closeContextEditor()
+                useFileViewerStore.getState().clearActiveViews()
                 useSessionStore.getState().setActivePinnedSession(null)
               }}
               className={cn(
@@ -1107,7 +1105,6 @@ export function SessionTabs(): React.JSX.Element | null {
             </div>
             {/* Pinned session tabs */}
             {Array.from(pinnedSessionIds).map((sessionId) => {
-              // Find the session object from the sessions map
               let session: { id: string; name: string | null; mode?: string } | null = null
               for (const sessions of sessionsByWorktree.values()) {
                 const found = sessions.find((s) => s.id === sessionId)
@@ -1124,9 +1121,7 @@ export function SessionTabs(): React.JSX.Element | null {
                   key={sessionId}
                   data-testid={`pinned-session-tab-${sessionId}`}
                   onClick={() => {
-                    setActiveFile(null)
-                    useFileViewerStore.getState().clearActiveDiff()
-                    useFileViewerStore.getState().closeContextEditor()
+                    useFileViewerStore.getState().clearActiveViews()
                     useSessionStore.getState().setActivePinnedSession(sessionId)
                   }}
                   className={cn(
