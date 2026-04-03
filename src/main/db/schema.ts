@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 18
+export const CURRENT_SCHEMA_VERSION = 19
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS projects (
   run_script TEXT DEFAULT NULL,
   archive_script TEXT DEFAULT NULL,
   custom_icon TEXT DEFAULT NULL,
+  detected_icon TEXT DEFAULT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
   auto_assign_port INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
@@ -406,6 +407,12 @@ export const MIGRATIONS: Migration[] = [
     version: 18,
     name: 'add_ticket_total_tokens',
     up: `ALTER TABLE kanban_tickets ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`,
+    down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 19,
+    name: 'add_project_detected_icon',
+    up: `ALTER TABLE projects ADD COLUMN detected_icon TEXT DEFAULT NULL`,
     down: `-- SQLite cannot drop columns; this is a no-op for safety`
   }
 ]
