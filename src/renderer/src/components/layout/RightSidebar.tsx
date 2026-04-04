@@ -86,7 +86,7 @@ export function RightSidebar(): React.JSX.Element {
     <TerminalManager
       selectedWorktreeId={selectedWorktreeId}
       worktreePath={selectedWorktreePath}
-      isVisible={!rightSidebarCollapsed && effectiveBottomPanelTab === 'terminal' && collapsedPanel !== 'bottom'}
+      isVisible={!rightSidebarCollapsed && effectiveBottomPanelTab === 'terminal'}
     />
   )
 
