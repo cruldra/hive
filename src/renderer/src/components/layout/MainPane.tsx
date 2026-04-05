@@ -175,7 +175,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     // Sticky-tab board mode: render board when BOARD_TAB_ID is the active session
     if (boardMode === 'sticky-tab' && activeSessionId === BOARD_TAB_ID && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
       // Worktree mode: show project board
-      if (selectedProjectId) {
+      if (selectedProjectId && !selectedConnectionId) {
         return <KanbanBoard projectId={selectedProjectId} projectPath={selectedProjectPath} />
       }
       // Connection mode: show connection board
@@ -205,7 +205,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     }
 
     // Board view — project-level (works with or without worktree selected)
-    if (isBoardViewActive && selectedProjectId && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
+    if (isBoardViewActive && selectedProjectId && !selectedConnectionId && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
       return <KanbanBoard projectId={selectedProjectId} projectPath={selectedProjectPath} />
     }
 
