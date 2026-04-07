@@ -56,6 +56,8 @@ vendor/
 scripts/*
 !scripts/generate-icon.py
 !scripts/release-canary.sh
+!scripts/release-github.sh
+!scripts/finalize.sh
 !scripts/release.sh
 !scripts/prepare-win-deps.sh
 !scripts/codex-app-server-probe.ts
