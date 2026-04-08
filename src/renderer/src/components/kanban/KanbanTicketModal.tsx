@@ -2015,6 +2015,8 @@ function ReviewModeContent({
                   worktreeId: ticket.worktree_id!,
                   worktreePath,
                 })
+              } else {
+                toast.error('Could not find worktree path')
               }
             }}
           >
