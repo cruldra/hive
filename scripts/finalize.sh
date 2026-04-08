@@ -53,7 +53,10 @@ read -rp "Proceed? [Y/n] " confirm
 
 # ── Un-draft the release ─────────────────────────────────────────
 info "Publishing release (removing draft status)..."
-gh release edit "v${VERSION}" --repo "$REPO" --draft=false --generate-notes
+NOTES=$(gh api "repos/${REPO}/releases/generate-notes" \
+  -f tag_name="v${VERSION}" \
+  --jq '.body')
+gh release edit "v${VERSION}" --repo "$REPO" --draft=false --notes "$NOTES"
 ok "Release v${VERSION} published"
 
 # ── Update Homebrew cask ─────────────────────────────────────────
