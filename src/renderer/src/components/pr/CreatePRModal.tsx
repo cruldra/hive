@@ -232,11 +232,19 @@ export function CreatePRModal({
           ? `Commit: ${result.commitHash.slice(0, 7)}`
           : undefined
       })
+      // Refresh commit count and branch info after committing
+      if (baseBranch) {
+        window.gitOps
+          .getRangeDiff(worktreePath, baseBranch)
+          .then((rd) => setCommitCount(rd.commitCount))
+          .catch(() => {})
+      }
+      useGitStore.getState().loadBranchInfo(worktreePath)
       setPhase('form')
     } else {
       setCommitError(result.error ?? 'Commit failed')
     }
-  }, [worktreePath, commitSummary, commitDescription, gitCommit])
+  }, [worktreePath, commitSummary, commitDescription, gitCommit, baseBranch])
 
   const handleSkipCommit = useCallback(() => {
     setPhase('form')
@@ -509,7 +517,7 @@ export function CreatePRModal({
       {/* Source branch (read-only) */}
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-foreground">Source branch</label>
-        <div className="flex items-center gap-2 px-3 py-2 text-sm border rounded-md bg-muted/50">
+        <div className="flex items-center gap-2 px-3 py-2 text-sm border rounded-md bg-muted/50 min-w-0">
           <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="truncate">{branchInfo?.name ?? 'Unknown'}</span>
           {commitCount !== null && (
@@ -533,7 +541,7 @@ export function CreatePRModal({
                 'bg-background hover:bg-accent/50 transition-colors text-left'
               )}
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 min-w-0">
                 <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <span className="truncate">{baseBranch || 'Select base branch...'}</span>
               </span>
@@ -652,7 +660,7 @@ export function CreatePRModal({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             <span className="flex items-center gap-2">

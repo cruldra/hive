@@ -2,8 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Hoisted mock references (available to vi.mock factories) ───────────
 
-const { mockGenerateText } = vi.hoisted(() => ({
-  mockGenerateText: vi.fn()
+const { mockSpawnCLI, mockExtractTitle, mockSanitize, mockResolveBinary } = vi.hoisted(() => ({
+  mockSpawnCLI: vi.fn(),
+  mockExtractTitle: vi.fn(),
+  mockSanitize: vi.fn(),
+  mockResolveBinary: vi.fn()
 }))
 
 // ── Mocks ──────────────────────────────────────────────────────────────
@@ -17,8 +20,18 @@ vi.mock('../src/main/services/logger', () => ({
   })
 }))
 
-vi.mock('../src/main/services/text-generation-router', () => ({
-  generateText: mockGenerateText
+vi.mock('../src/main/services/title-generation-shared', async (importOriginal) => {
+  const actual = await importOriginal() as any
+  return {
+    ...actual,
+    spawnCLI: mockSpawnCLI,
+    extractTitleFromJSON: mockExtractTitle,
+    sanitizeTitle: mockSanitize,
+  }
+})
+
+vi.mock('../src/main/services/claude-binary-resolver', () => ({
+  resolveClaudeBinaryPath: mockResolveBinary
 }))
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -28,7 +41,10 @@ describe('generateSessionTitle', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    mockGenerateText.mockResolvedValue(null)
+    mockSpawnCLI.mockResolvedValue('{"structured_output":{"title":"Test title"}}')
+    mockExtractTitle.mockReturnValue('Test title')
+    mockSanitize.mockReturnValue('Test title')
+    mockResolveBinary.mockReturnValue(null)
 
     const mod = await import('../src/main/services/claude-session-title')
     generateSessionTitle = mod.generateSessionTitle
@@ -36,130 +52,101 @@ describe('generateSessionTitle', () => {
 
   // ── Happy path ──────────────────────────────────────────────────────
 
-  it('returns trimmed title on successful generation', async () => {
-    mockGenerateText.mockResolvedValue('  Fix auth token refresh  \n')
+  it('returns sanitized title when spawnCLI succeeds', async () => {
+    mockSpawnCLI.mockResolvedValue('json output')
+    mockExtractTitle.mockReturnValue('Fix auth bug')
+    mockSanitize.mockReturnValue('Fix auth bug')
+
     const result = await generateSessionTitle('Fix the auth token refresh bug')
-    expect(result).toBe('Fix auth token refresh')
-  })
-
-  it('returns title with no extra whitespace', async () => {
-    mockGenerateText.mockResolvedValue('Add dark mode toggle')
-    const result = await generateSessionTitle('I want to add dark mode')
-    expect(result).toBe('Add dark mode toggle')
-  })
-
-  // ── Post-processing ────────────────────────────────────────────────
-
-  it('strips <think> tags from response', async () => {
-    mockGenerateText.mockResolvedValue('<think>reasoning here</think>Fix auth bug')
-    const result = await generateSessionTitle('message')
     expect(result).toBe('Fix auth bug')
   })
 
-  it('strips multiline <think> tags', async () => {
-    mockGenerateText.mockResolvedValue('<think>\nsome reasoning\nacross lines\n</think>\nDatabase migration')
-    const result = await generateSessionTitle('message')
-    expect(result).toBe('Database migration')
+  // ── CLI args verification ──────────────────────────────────────────
+
+  it('calls spawnCLI with correct args', async () => {
+    await generateSessionTitle('hello')
+
+    const { TITLE_JSON_SCHEMA, TITLE_TIMEOUT_MS } = await import('../src/main/services/title-generation-shared')
+
+    expect(mockSpawnCLI).toHaveBeenCalledWith(
+      expect.any(String),
+      ['-p', '--output-format', 'json', '--json-schema', TITLE_JSON_SCHEMA, '--model', 'haiku', '--effort', 'low', '--dangerously-skip-permissions', '--no-session-persistence', '--tools', ''],
+      expect.any(String),
+      TITLE_TIMEOUT_MS
+    )
   })
 
-  it('takes first non-empty line from multiline response', async () => {
-    mockGenerateText.mockResolvedValue('\n\n  Fix auth bug  \nAnother line\n')
-    const result = await generateSessionTitle('message')
-    expect(result).toBe('Fix auth bug')
+  // ── Binary resolution ──────────────────────────────────────────────
+
+  it('uses provided claudeBinaryPath when given', async () => {
+    await generateSessionTitle('hello', '/usr/local/bin/claude')
+
+    expect(mockSpawnCLI).toHaveBeenCalledWith(
+      '/usr/local/bin/claude',
+      expect.any(Array),
+      expect.any(String),
+      expect.any(Number)
+    )
   })
 
-  it('truncates titles longer than 100 chars to 97 + "..."', async () => {
-    const longTitle = 'A'.repeat(110)
-    mockGenerateText.mockResolvedValue(longTitle)
-    const result = await generateSessionTitle('message')
-    expect(result).toBe('A'.repeat(97) + '...')
-    expect(result!.length).toBe(100)
+  it('falls back to resolveClaudeBinaryPath() when no path given', async () => {
+    mockResolveBinary.mockReturnValue('/resolved/claude')
+
+    await generateSessionTitle('hello')
+
+    expect(mockSpawnCLI).toHaveBeenCalledWith(
+      '/resolved/claude',
+      expect.any(Array),
+      expect.any(String),
+      expect.any(Number)
+    )
   })
 
-  it('returns full title when exactly 100 characters', async () => {
-    const exactTitle = 'A'.repeat(100)
-    mockGenerateText.mockResolvedValue(exactTitle)
-    const result = await generateSessionTitle('message')
-    expect(result).toBe(exactTitle)
-  })
+  it('falls back to "claude" when both are null', async () => {
+    mockResolveBinary.mockReturnValue(null)
 
-  it('returns full title when under 100 characters', async () => {
-    const shortTitle = 'A'.repeat(50)
-    mockGenerateText.mockResolvedValue(shortTitle)
-    const result = await generateSessionTitle('message')
-    expect(result).toBe(shortTitle)
+    await generateSessionTitle('hello')
+
+    expect(mockSpawnCLI).toHaveBeenCalledWith(
+      'claude',
+      expect.any(Array),
+      expect.any(String),
+      expect.any(Number)
+    )
   })
 
   // ── Null-return cases ──────────────────────────────────────────────
 
-  it('returns null when generateText returns null', async () => {
-    mockGenerateText.mockResolvedValue(null)
-    const result = await generateSessionTitle('message')
+  it('returns null when spawnCLI throws', async () => {
+    mockSpawnCLI.mockRejectedValue(new Error('spawn failed'))
+
+    const result = await generateSessionTitle('hello')
     expect(result).toBeNull()
   })
 
-  it('returns null on empty string result', async () => {
-    mockGenerateText.mockResolvedValue('')
-    const result = await generateSessionTitle('message')
+  it('returns null when extractTitleFromJSON returns null', async () => {
+    mockExtractTitle.mockReturnValue(null)
+
+    const result = await generateSessionTitle('hello')
     expect(result).toBeNull()
   })
 
-  it('returns null on whitespace-only result', async () => {
-    mockGenerateText.mockResolvedValue('   \n  ')
-    const result = await generateSessionTitle('message')
+  it('returns null when sanitizeTitle returns null', async () => {
+    mockExtractTitle.mockReturnValue('some raw title')
+    mockSanitize.mockReturnValue(null)
+
+    const result = await generateSessionTitle('hello')
     expect(result).toBeNull()
-  })
-
-  it('returns null when generateText throws', async () => {
-    mockGenerateText.mockRejectedValue(new Error('generation failed'))
-    const result = await generateSessionTitle('message')
-    expect(result).toBeNull()
-  })
-
-  // ── Provider parameter ────────────────────────────────────────────
-
-  it('passes default provider "claude-code" to generateText', async () => {
-    mockGenerateText.mockResolvedValue('Some title')
-    await generateSessionTitle('hello')
-
-    expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      'claude-code'
-    )
-  })
-
-  it('passes custom provider to generateText', async () => {
-    mockGenerateText.mockResolvedValue('Some title')
-    await generateSessionTitle('hello', 'codex')
-
-    expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      'codex'
-    )
-  })
-
-  it('passes "opencode" provider to generateText', async () => {
-    mockGenerateText.mockResolvedValue('Some title')
-    await generateSessionTitle('hello', 'opencode')
-
-    expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      'opencode'
-    )
   })
 
   // ── Message truncation ────────────────────────────────────────────
 
   it('truncates messages longer than 2000 characters', async () => {
-    mockGenerateText.mockResolvedValue('Some title')
     const longMessage = 'x'.repeat(5000)
     await generateSessionTitle(longMessage)
 
-    const [prompt] = mockGenerateText.mock.calls[0] as [string, string, string]
-    // The prompt should contain the truncated message (2000 chars + '...')
+    const prompt = mockSpawnCLI.mock.calls[0][2] as string
+    // The prompt should contain the truncation marker
     expect(prompt).toContain('...')
     // Full 5000 char message should NOT be present
     expect(prompt).not.toContain(longMessage)
@@ -167,38 +154,21 @@ describe('generateSessionTitle', () => {
     expect(prompt).toContain(longMessage.slice(0, 2000))
   })
 
-  it('does not truncate messages under 2000 characters', async () => {
-    mockGenerateText.mockResolvedValue('Some title')
+  it('does not truncate short messages', async () => {
     const shortMessage = 'Fix the bug'
     await generateSessionTitle(shortMessage)
 
-    const [prompt] = mockGenerateText.mock.calls[0] as [string, string, string]
+    const prompt = mockSpawnCLI.mock.calls[0][2] as string
     expect(prompt).toContain(shortMessage)
-  })
-
-  // ── User message format ────────────────────────────────────────────
-
-  it('formats user prompt with "Generate a title" prefix', async () => {
-    mockGenerateText.mockResolvedValue('Some title')
-    await generateSessionTitle('hello world')
-
-    const [prompt] = mockGenerateText.mock.calls[0] as [string, string, string]
-    expect(prompt).toContain('Generate a title for this conversation:')
-    expect(prompt).toContain('hello world')
-  })
-
-  it('passes system prompt to generateText', async () => {
-    mockGenerateText.mockResolvedValue('Some title')
-    await generateSessionTitle('hello')
-
-    const [, systemPrompt] = mockGenerateText.mock.calls[0] as [string, string, string]
-    expect(systemPrompt).toContain('You are a title generator')
+    // Should not have the truncation ellipsis appended to the message
+    expect(prompt).toContain('User message:\n' + shortMessage)
   })
 
   // ── Never throws ──────────────────────────────────────────────────
 
-  it('never throws — always returns string or null', async () => {
-    mockGenerateText.mockRejectedValue(new Error('total explosion'))
+  it('returns null on any error, never throws', async () => {
+    mockSpawnCLI.mockRejectedValue(new Error('total explosion'))
+
     const result = await generateSessionTitle('message')
     expect(result).toBeNull()
   })

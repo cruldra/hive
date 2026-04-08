@@ -1536,6 +1536,16 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     // (not yet set up) and the global listener (which skips the active session).
     const unsubscribe = window.opencodeOps?.onStream
       ? window.opencodeOps.onStream((event) => {
+          // Debug: log ALL session.updated events, even if filtered out
+          if (event.type === 'session.updated') {
+            console.log('[TITLE_DEBUG] onStream received session.updated (before filter)', {
+              eventSessionId: event.sessionId,
+              componentSessionId: sessionId,
+              match: event.sessionId === sessionId,
+              title: event.data?.info?.title || event.data?.title
+            })
+          }
+
           // Only handle events for this session
           if (event.sessionId !== sessionId) return
 
@@ -1570,12 +1580,21 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           // The SDK event structure is: { data: { info: { title, ... } } }
           if (event.type === 'session.updated') {
             const sessionTitle = event.data?.info?.title || event.data?.title
+            console.log('[TITLE_DEBUG] SessionView received session.updated', {
+              eventSessionId: event.sessionId,
+              componentSessionId: sessionId,
+              sessionTitle,
+              eventData: event.data
+            })
             // Skip OpenCode default placeholder titles like "New session - 2026-02-12T21:33:03.013Z"
             const isOpenCodeDefault = /^New session\s*-?\s*\d{4}-\d{2}-\d{2}/i.test(
               sessionTitle || ''
             )
             if (sessionTitle && !isOpenCodeDefault) {
+              console.log('[TITLE_DEBUG] SessionView calling updateSessionName', { sessionId, sessionTitle })
               useSessionStore.getState().updateSessionName(sessionId, sessionTitle)
+            } else {
+              console.log('[TITLE_DEBUG] SessionView SKIPPED updateSessionName', { sessionTitle, isOpenCodeDefault })
             }
             return
           }

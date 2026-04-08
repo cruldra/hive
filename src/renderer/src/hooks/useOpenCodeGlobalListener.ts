@@ -292,6 +292,14 @@ export function useOpenCodeGlobalListener(): void {
           }
 
           // Keep session.updated for background title sync (some events use this type)
+          if (event.type === 'session.updated') {
+            console.log('[TITLE_DEBUG] globalListener received session.updated', {
+              eventSessionId: sessionId,
+              activeId,
+              isBackground: sessionId !== activeId,
+              title: event.data?.info?.title || event.data?.title
+            })
+          }
           if (event.type === 'session.updated' && sessionId !== activeId) {
             const sessionTitle = event.data?.info?.title || event.data?.title
             // Skip OpenCode default placeholder titles like "New session - 2026-02-12T21:33:03.013Z"
@@ -299,6 +307,7 @@ export function useOpenCodeGlobalListener(): void {
               sessionTitle || ''
             )
             if (sessionTitle && !isOpenCodeDefault) {
+              console.log('[TITLE_DEBUG] globalListener calling updateSessionName', { sessionId, sessionTitle })
               useSessionStore.getState().updateSessionName(sessionId, sessionTitle)
             }
             return
