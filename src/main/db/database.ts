@@ -1688,10 +1688,11 @@ export class DatabaseService {
     const externalUrl = data.external_url ?? null
     const githubPrNumber = data.github_pr_number ?? null
     const githubPrUrl = data.github_pr_url ?? null
+    const mark = data.mark ?? null
 
     db.prepare(
-      `INSERT INTO kanban_tickets (id, project_id, title, description, attachments, "column", sort_order, current_session_id, worktree_id, mode, plan_ready, external_provider, external_id, external_url, github_pr_number, github_pr_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO kanban_tickets (id, project_id, title, description, attachments, "column", sort_order, current_session_id, worktree_id, mode, plan_ready, external_provider, external_id, external_url, github_pr_number, github_pr_url, mark, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       data.project_id,
@@ -1709,6 +1710,7 @@ export class DatabaseService {
       externalUrl,
       githubPrNumber,
       githubPrUrl,
+      mark,
       now,
       now
     )
@@ -1730,6 +1732,7 @@ export class DatabaseService {
       external_url: externalUrl,
       github_pr_number: githubPrNumber,
       github_pr_url: githubPrUrl,
+      mark,
       total_tokens: 0,
       created_at: now,
       updated_at: now
