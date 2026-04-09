@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
-import { Paperclip, AlertCircle, Trash2, Archive, ArchiveRestore, GitBranch, ExternalLink, X, FileText, Pin, PinOff, RefreshCw, Link as LinkIcon, GitPullRequest, Loader2 } from 'lucide-react'
+import { Paperclip, AlertCircle, Trash2, Archive, ArchiveRestore, GitBranch, ExternalLink, X, FileText, Pin, PinOff, RefreshCw, Link as LinkIcon, GitPullRequest, Loader2, Sparkles } from 'lucide-react'
 import { UpdateStatusModal } from './UpdateStatusModal'
 import { cn } from '@/lib/utils'
 import { ProviderIcon, getProviderLabel } from '@/components/ui/provider-icon'
@@ -9,7 +9,12 @@ import {
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem
 } from '@/components/ui/context-menu'
 import {
   AlertDialog,
@@ -40,7 +45,8 @@ import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useSessionTimer } from '@/hooks/useSessionTimer'
 import { useSessionTokenDelta } from '@/hooks/useSessionTokenDelta'
 import { formatTokenCount } from '@/lib/format-utils'
-import type { KanbanTicket } from '../../../../main/db/types'
+import dragonFrameSvg from '@/assets/dragon-frame.svg'
+import type { KanbanTicket, TicketMark } from '../../../../main/db/types'
 
 // ── Project tag color palette ──────────────────────────────────────
 const PROJECT_TAG_COLORS = [
@@ -446,6 +452,16 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
     useFileViewerStore.getState().openContextEditor(ticket.worktree_id)
   }, [ticket.worktree_id])
 
+  const handleMarkChange = useCallback(async (value: string) => {
+    try {
+      await useKanbanStore.getState().updateTicket(ticket.id, ticket.project_id, {
+        mark: value === 'none' ? null : value as TicketMark
+      })
+    } catch {
+      toast.error('Failed to update ticket mark')
+    }
+  }, [ticket.id, ticket.project_id])
+
   return (
     <>
       <Popover open={showPRPicker} onOpenChange={setShowPRPicker}>
@@ -466,9 +482,33 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
                   isArchived && 'opacity-50 cursor-default',
                   borderState === 'default' && 'border-border/60',
                   borderState === 'blue' && 'border-blue-500/60',
-                  borderState === 'violet' && 'border-violet-500/60'
+                  borderState === 'violet' && 'border-violet-500/60',
+                  // Left accent stripe for non-legendary marks
+                  ticket.mark === 'common' && 'border-l-4 border-l-green-500',
+                  ticket.mark === 'rare' && 'border-l-4 border-l-blue-500',
+                  ticket.mark === 'epic' && 'border-l-4 border-l-purple-500',
+                  // Legendary: extra padding + relative for frame overlay
+                  ticket.mark === 'legendary' && 'relative p-3'
                 )}
               >
+            {/* Dragon frame overlay for legendary tickets */}
+            {ticket.mark === 'legendary' && (
+              <div
+                className={cn(
+                  'absolute inset-0 pointer-events-none rounded-md',
+                  ticket.mode === 'build' ? 'text-blue-500' :
+                  (ticket.mode === 'plan' || ticket.mode === 'super-plan') ? 'text-violet-500' :
+                  'text-gray-400'
+                )}
+                style={{
+                  maskImage: `url(${dragonFrameSvg})`,
+                  maskSize: '100% 100%',
+                  WebkitMaskImage: `url(${dragonFrameSvg})`,
+                  WebkitMaskSize: '100% 100%',
+                  backgroundColor: 'currentColor'
+                }}
+              />
+            )}
             {/* Title + top-right indicators */}
             <div className="flex items-start justify-between gap-2">
               <p className="text-sm font-medium leading-snug text-foreground min-w-0">{ticket.title}</p>
@@ -711,6 +751,34 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
               Attach PR
             </ContextMenuItem>
           )}
+
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2">
+              <Sparkles className="h-3.5 w-3.5" />
+              Mark
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuRadioGroup value={ticket.mark ?? 'none'} onValueChange={handleMarkChange}>
+                <ContextMenuRadioItem value="none">No Mark</ContextMenuRadioItem>
+                <ContextMenuRadioItem value="common">
+                  <span className="h-2 w-2 rounded-full bg-green-500 inline-block mr-2" />
+                  Common
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="rare">
+                  <span className="h-2 w-2 rounded-full bg-blue-500 inline-block mr-2" />
+                  Rare
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="epic">
+                  <span className="h-2 w-2 rounded-full bg-purple-500 inline-block mr-2" />
+                  Epic
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="legendary">
+                  <span className="h-2 w-2 rounded-full bg-orange-500 inline-block mr-2" />
+                  Legendary
+                </ContextMenuRadioItem>
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
 
           <ContextMenuSeparator />
 
