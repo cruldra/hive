@@ -1702,6 +1702,17 @@ const terminalOps = {
   ghosttyPasteText: (worktreeId: string, text: string): Promise<void> =>
     ipcRenderer.invoke('terminal:ghostty:pasteText', worktreeId, text),
 
+  ghosttyFocusDiagnostics: (): Promise<
+    Array<{
+      surfaceId: number
+      subviewCount: number
+      firstResponderClass: string
+      isHostView: boolean
+      isDescendant: boolean
+      hasWindow: boolean
+    }>
+  > => ipcRenderer.invoke('terminal:ghostty:focusDiagnostics'),
+
   ghosttyDestroySurface: (worktreeId: string): Promise<void> =>
     ipcRenderer.invoke('terminal:ghostty:destroySurface', worktreeId),
 
@@ -1886,6 +1897,7 @@ const kanban = {
         worktree_id?: string | null
         mode?: 'build' | 'plan' | null
         plan_ready?: boolean
+        mark?: string | null
       }
     ) => ipcRenderer.invoke('kanban:ticket:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('kanban:ticket:delete', id),
