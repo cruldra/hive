@@ -108,7 +108,7 @@ class PerfDiagnosticsService {
   }
 
   getSnapshot(): PerfSnapshot {
-    return this.collect()
+    return this.collect(false)
   }
 
   cleanup(): void {
@@ -121,7 +121,7 @@ class PerfDiagnosticsService {
     }
   }
 
-  private collect(): PerfSnapshot {
+  private collect(updateBaseline = true): PerfSnapshot {
     const now = Date.now()
     const mem = process.memoryUsage()
     const cpuUsage = process.cpuUsage()
@@ -136,8 +136,10 @@ class PerfDiagnosticsService {
         cpuPercent = ((userDelta + systemDelta) / elapsed) * 100
       }
     }
-    this.prevCpuUsage = cpuUsage
-    this.prevCpuTimestamp = now
+    if (updateBaseline) {
+      this.prevCpuUsage = cpuUsage
+      this.prevCpuTimestamp = now
+    }
 
     // Collect metrics from registered collectors
     const collectors = this.collectors

@@ -705,16 +705,24 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   useEffect(() => {
     if (!worktreePath) return
 
+    const isNewWorktree = prevFileIndexWorktreeRef.current !== worktreePath
+
     // If switching worktrees, stop watching the previous one.
     // refCount in the store ensures this won't tear down a watcher
     // that FileTree or another SessionView still needs.
-    if (prevFileIndexWorktreeRef.current && prevFileIndexWorktreeRef.current !== worktreePath) {
+    if (prevFileIndexWorktreeRef.current && isNewWorktree) {
       useFileTreeStore.getState().stopWatching(prevFileIndexWorktreeRef.current)
     }
     prevFileIndexWorktreeRef.current = worktreePath
 
     if (fileIndex === EMPTY_FILE_INDEX) {
       useFileTreeStore.getState().loadFileIndex(worktreePath)
+      // loadFileIndex internally calls startWatching
+    } else if (isNewWorktree) {
+      // File index already loaded by another consumer (FileTree, another SessionView) —
+      // still register as a watcher consumer so our unmount cleanup's stopWatching
+      // has a matching refCount increment.
+      useFileTreeStore.getState().startWatching(worktreePath)
     }
   }, [worktreePath, fileIndex])
 

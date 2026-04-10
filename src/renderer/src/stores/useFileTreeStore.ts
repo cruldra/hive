@@ -303,7 +303,12 @@ export const useFileTreeStore = create<FileTreeState>()(
           const entry = watchSubscriptions.get(worktreePath)
           if (!entry) return
 
-          entry.refCount--
+          if (entry.refCount <= 0) {
+            console.warn(`[FileTreeStore] stopWatching called at refCount ${entry.refCount}`, worktreePath)
+            return
+          }
+
+          entry.refCount = Math.max(0, entry.refCount - 1)
           if (entry.refCount > 0) return
 
           entry.unsubscribe()
