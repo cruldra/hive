@@ -487,7 +487,8 @@ export class CodexImplementer implements AgentSdkImplementer {
         revertMessageID: null,
         revertDiff: null,
         titleGenerated: true,
-        titleGenerationStarted: true
+        titleGenerationStarted: true,
+        persistDebounceTimer: null
       }
       this.sessions.set(newKey, state)
 
@@ -623,6 +624,9 @@ export class CodexImplementer implements AgentSdkImplementer {
 
     // Set up event listener for streaming
     let interactionMode: 'default' | 'plan' = 'default'
+    // Fallback accumulators: only populated when canonical path is not active.
+    // Used for: (1) fallback message if canonical path fails, (2) plan extraction
+    // last resort, (3) logging. Stay empty when canonical path is active.
     let assistantText = ''
     let reasoningText = ''
     let pendingPlanText: string | null = null
@@ -646,24 +650,26 @@ export class CodexImplementer implements AgentSdkImplementer {
         this.sendToRenderer('opencode:stream', streamEvent)
         this.updateLiveAssistantDraftFromStreamEvent(session, streamEvent)
         if (this.synchronizeCanonicalAssistantFromStreamEvent(session, event, streamEvent)) {
-          this.persistCanonicalMessages(session)
+          this.persistCanonicalMessagesDebounced(session)
         }
       }
 
-      // Accumulate text for message history
-      const streamKind = contentStreamKindFromMethod(event.method)
-      if (streamKind) {
-        const payload = event.payload as Record<string, unknown> | undefined
-        const deltaText =
-          event.textDelta ??
-          asString(asObject(payload)?.delta) ??
-          asString(asObject(payload)?.text) ??
-          ''
+      // Accumulate text for message history (only when canonical path is not active)
+      if (!session.currentAssistantMessageId) {
+        const streamKind = contentStreamKindFromMethod(event.method)
+        if (streamKind) {
+          const payload = event.payload as Record<string, unknown> | undefined
+          const deltaText =
+            event.textDelta ??
+            asString(asObject(payload)?.delta) ??
+            asString(asObject(payload)?.text) ??
+            ''
 
-        if (streamKind === 'reasoning' || streamKind === 'reasoning_summary') {
-          reasoningText += deltaText
-        } else {
-          assistantText += deltaText
+          if (streamKind === 'reasoning' || streamKind === 'reasoning_summary') {
+            reasoningText += deltaText
+          } else {
+            assistantText += deltaText
+          }
         }
       }
 
@@ -738,6 +744,7 @@ export class CodexImplementer implements AgentSdkImplementer {
 
       // Persist the canonical streamed transcript first. This keeps reload
       // aligned with the exact structure that was rendered during streaming.
+      this.flushPendingPersist(session)
       if (session.currentAssistantMessageId) {
         this.persistCanonicalMessages(session)
         session.liveAssistantDraft = null
@@ -876,6 +883,7 @@ export class CodexImplementer implements AgentSdkImplementer {
     session.liveAssistantDraft = null
     session.currentTurnId = null
     session.currentAssistantMessageId = null
+    this.flushPendingPersist(session)
     this.persistCanonicalMessages(session)
     this.emitStatus(session.hiveSessionId, 'idle')
     return true
@@ -1538,6 +1546,22 @@ export class CodexImplementer implements AgentSdkImplementer {
     }
   }
 
+  private persistCanonicalMessagesDebounced(session: CodexSessionState): void {
+    if (session.persistDebounceTimer) clearTimeout(session.persistDebounceTimer)
+    session.persistDebounceTimer = setTimeout(() => {
+      session.persistDebounceTimer = null
+      this.persistCanonicalMessages(session)
+    }, PERSIST_DEBOUNCE_MS)
+  }
+
+  private flushPendingPersist(session: CodexSessionState): void {
+    if (session.persistDebounceTimer) {
+      clearTimeout(session.persistDebounceTimer)
+      session.persistDebounceTimer = null
+      this.persistCanonicalMessages(session)
+    }
+  }
+
   private persistCanonicalMessages(session: CodexSessionState): void {
     if (!this.dbService) return
 
@@ -2142,7 +2166,8 @@ export class CodexImplementer implements AgentSdkImplementer {
         revertMessageID: null,
         revertDiff: null,
         titleGenerated: true,
-        titleGenerationStarted: true
+        titleGenerationStarted: true,
+        persistDebounceTimer: null
       }
 
       this.sessions.set(this.getSessionKey(worktreePath, threadId), recovered)
