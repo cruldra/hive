@@ -13,6 +13,7 @@ import {
 import { isPlanLike } from '../lib/constants'
 import { useConnectionStore } from './useConnectionStore'
 import { usePinnedStore } from './usePinnedStore'
+import { useWorktreeStatusStore } from './useWorktreeStatusStore'
 
 // ── Shared drag state (module-level, avoids DataTransfer issues in Electron) ──
 export interface KanbanDragData {
@@ -425,6 +426,12 @@ export const useKanbanStore = create<KanbanState>()(
           next.set(projectId, tickets)
           return { tickets: next }
         })
+
+        // Clear "Go to review" indicator when ticket moves columns (optimistic)
+        const movedTicket = prev.find((t) => t.id === ticketId)
+        if (movedTicket?.worktree_id) {
+          useWorktreeStatusStore.getState().clearCompletedReviewSession(movedTicket.worktree_id)
+        }
 
         try {
           await window.kanban.ticket.move(ticketId, column, sortOrder)
