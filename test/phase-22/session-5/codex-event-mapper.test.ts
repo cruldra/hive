@@ -129,7 +129,7 @@ describe('mapCodexEventToStreamEvents', () => {
       })
     })
 
-    it('maps item/commandExecution/outputDelta to text type', () => {
+    it('maps item/commandExecution/outputDelta without itemId to text type', () => {
       const event = makeEvent({
         method: 'item/commandExecution/outputDelta',
         payload: { text: 'command output line' }
@@ -144,7 +144,26 @@ describe('mapCodexEventToStreamEvents', () => {
       })
     })
 
-    it('maps item/fileChange/outputDelta to text type', () => {
+    it('command_output with itemId → tool outputDelta', () => {
+      const event = makeEvent({
+        method: 'item/commandExecution/outputDelta',
+        itemId: 'tool-42',
+        payload: { text: 'command output line' }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('message.part.updated')
+      expect(result[0].sessionId).toBe(HIVE_SESSION)
+      const part = (result[0].data as any).part
+      expect(part.type).toBe('tool')
+      expect(part.callID).toBe('tool-42')
+      expect(part.tool).toBe('Bash')
+      expect(part.state).toEqual({ status: 'running', outputDelta: 'command output line' })
+    })
+
+    it('maps item/fileChange/outputDelta without itemId to text type', () => {
       const event = makeEvent({
         method: 'item/fileChange/outputDelta',
         payload: { text: 'file change diff' }
@@ -157,6 +176,25 @@ describe('mapCodexEventToStreamEvents', () => {
         part: { type: 'text', text: 'file change diff' },
         delta: 'file change diff'
       })
+    })
+
+    it('file_change_output with itemId → tool outputDelta', () => {
+      const event = makeEvent({
+        method: 'item/fileChange/outputDelta',
+        itemId: 'tool-fc-7',
+        payload: { text: 'file change diff' }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('message.part.updated')
+      expect(result[0].sessionId).toBe(HIVE_SESSION)
+      const part = (result[0].data as any).part
+      expect(part.type).toBe('tool')
+      expect(part.callID).toBe('tool-fc-7')
+      expect(part.tool).toBe('fileChange')
+      expect(part.state).toEqual({ status: 'running', outputDelta: 'file change diff' })
     })
 
     it('maps item/plan/delta to text type', () => {

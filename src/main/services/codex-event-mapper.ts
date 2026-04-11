@@ -311,6 +311,25 @@ export function mapCodexEventToStreamEvents(
     const delta = extractContentDelta(event)
     if (!delta) return []
 
+    // Route command/file-change output to the tool card as outputDelta
+    if (
+      (streamKind === 'command_output' || streamKind === 'file_change_output') &&
+      event.itemId
+    ) {
+      return [{
+        type: 'message.part.updated',
+        sessionId: hiveSessionId,
+        data: annotateData({
+          part: {
+            type: 'tool',
+            callID: event.itemId,
+            tool: streamKind === 'command_output' ? 'Bash' : 'fileChange',
+            state: { status: 'running', outputDelta: delta.text }
+          }
+        })
+      }]
+    }
+
     return [
       {
         type: 'message.part.updated',
