@@ -726,6 +726,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const finalizedMessageIdsRef = useRef<Set<string>>(new Set())
   const hasFinalizedCurrentResponseRef = useRef(false)
   const sessionModelHydratedRef = useRef(false)
+  const codexRefreshRafRef = useRef<number | null>(null)
+  const codexRefreshInFlightRef = useRef(false)
+  const codexRefreshPendingRef = useRef(false)
+  const codexStreamingMessageIdRef = useRef<string | null>(null)
+  const seenCodexEventIdsRef = useRef<string[]>([])
 
   // Guard: tracks whether a new prompt was sent during the current streaming cycle.
   // When true, finalizeResponse skips the full reload to avoid
@@ -1053,6 +1058,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     return () => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current)
+      }
+      if (codexRefreshRafRef.current !== null) {
+        cancelAnimationFrame(codexRefreshRafRef.current)
       }
       if (programmaticScrollResetRef.current !== null) {
         cancelAnimationFrame(programmaticScrollResetRef.current)
@@ -1549,6 +1557,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     streamingPartsRef.current = []
     streamingContentRef.current = ''
     childToSubtaskIndexRef.current = new Map()
+    codexStreamingMessageIdRef.current = null
+    seenCodexEventIdsRef.current = []
+    codexRefreshPendingRef.current = false
+    codexRefreshInFlightRef.current = false
+    if (codexRefreshRafRef.current !== null) {
+      cancelAnimationFrame(codexRefreshRafRef.current)
+      codexRefreshRafRef.current = null
+    }
     setStreamingParts([])
     setStreamingContent('')
     hasFinalizedCurrentResponseRef.current = false
@@ -1576,6 +1592,32 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           // Guard: generation check — prevents stale closures from processing
           // events when the user has already switched to a different session.
           if (streamGenerationRef.current !== currentGeneration) return
+
+          if (sessionRecord?.agent_sdk === 'codex') {
+            const codexEventId =
+              event.data &&
+              typeof event.data === 'object' &&
+              !Array.isArray(event.data) &&
+              typeof (event.data as Record<string, unknown>)._codexEventId === 'string'
+                ? ((event.data as Record<string, unknown>)._codexEventId as string)
+                : null
+
+            if (codexEventId) {
+              if (seenCodexEventIdsRef.current.includes(codexEventId)) {
+                console.debug('[CODEX_STREAM_DUPLICATE_EVENT_DROPPED]', {
+                  sessionId,
+                  codexEventId,
+                  eventType: event.type
+                })
+                return
+              }
+
+              seenCodexEventIdsRef.current.push(codexEventId)
+              if (seenCodexEventIdsRef.current.length > 500) {
+                seenCodexEventIdsRef.current = seenCodexEventIdsRef.current.slice(-250)
+              }
+            }
+          }
 
           // Log event if response logging is active
           if (isLogModeRef.current && logFilePathRef.current) {
@@ -1865,6 +1907,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 planContent: planText,
                 toolUseID: data.toolUseID ?? ''
               })
+              if (sessionRecord?.agent_sdk === 'codex') {
+                scheduleCodexStreamingRefresh()
+              }
               setIsStreaming(false)
               setIsSending(false)
               setQueuedMessages([])
@@ -1875,6 +1920,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
           if (event.type === 'plan.resolved') {
             useSessionStore.getState().clearPendingPlan(sessionId)
+            if (sessionRecord?.agent_sdk === 'codex') {
+              scheduleCodexStreamingRefresh()
+            }
             return
           }
 
@@ -2011,6 +2059,44 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               }
               // First non-matching text means assistant response has started
               lastSentPromptRef.current = null
+            }
+
+            if (sessionRecord?.agent_sdk === 'codex') {
+              if (part.type === 'text') {
+                const delta = event.data?.delta || part.text || ''
+                if (delta) {
+                  applyCodexStreamingPart({ type: 'text', text: delta })
+                }
+              } else if (part.type === 'reasoning') {
+                const delta = event.data?.delta || part.text || ''
+                if (delta) {
+                  applyCodexStreamingPart({ type: 'reasoning', reasoning: delta })
+                }
+              } else if (part.type === 'tool') {
+                const state = part.state || {}
+                const statusMap: Record<string, ToolStatus> = {
+                  pending: 'pending',
+                  running: 'running',
+                  completed: 'success',
+                  error: 'error'
+                }
+                applyCodexStreamingPart({
+                  type: 'tool_use',
+                  toolUse: {
+                    id: part.callID || part.id || `tool-${Date.now()}`,
+                    name: part.tool || 'Unknown',
+                    input: state.input || {},
+                    status: statusMap[state.status] || 'running',
+                    startTime: state.time?.start || Date.now(),
+                    endTime: state.time?.end,
+                    output: state.status === 'completed' ? state.output : undefined,
+                    error: state.status === 'error' ? state.error : undefined
+                  }
+                })
+              }
+
+              setIsStreaming(true)
+              return
             }
 
             // New stream content means we're processing a new assistant response.
@@ -2387,6 +2473,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               setSessionErrorStderr(null)
               setIsCompacting(false)
               setIsStreaming(true)
+              codexStreamingMessageIdRef.current = null
               hasFinalizedCurrentResponseRef.current = false
               newPromptPendingRef.current = false
               planXmlDetectionRef.current = { state: 'scanning', buffer: '', cardId: null }
@@ -3249,7 +3336,187 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     )
     setMessages(loadedMessages)
     return true
-  }, [opencodeSessionId, sessionId, sessionRecord?.agent_sdk, worktreePath])
+  }, [isStreaming, opencodeSessionId, sessionId, sessionRecord?.agent_sdk, worktreePath])
+
+  const refreshCodexStreamingMessages = useCallback(async (): Promise<void> => {
+    if (sessionRecord?.agent_sdk !== 'codex') return
+    if (!worktreePath || !opencodeSessionId) return
+
+    const durableState = await loadCodexDurableState(sessionId)
+    const transcriptResult = await window.opencodeOps.getMessages(worktreePath, opencodeSessionId)
+    if (!transcriptResult.success) return
+
+    const liveMessages = mergeCodexActivityMessages(
+      mapOpencodeMessagesToSessionViewMessages(
+        Array.isArray(transcriptResult.messages) ? transcriptResult.messages : []
+      ),
+      durableState.activities,
+      !isStreaming
+    )
+    const lastAssistant = [...liveMessages].reverse().find((message) => message.role === 'assistant')
+    console.debug('[CODEX_STREAM_RENDER_REFRESH]', {
+      sessionId,
+      messageCount: liveMessages.length,
+      lastAssistantId: lastAssistant?.id,
+      lastAssistantPreview: lastAssistant?.content.slice(0, 120)
+    })
+    setMessages(liveMessages)
+  }, [isStreaming, opencodeSessionId, sessionId, sessionRecord?.agent_sdk, worktreePath])
+
+  const scheduleCodexStreamingRefresh = useCallback(() => {
+    if (sessionRecord?.agent_sdk !== 'codex') return
+    if (codexRefreshRafRef.current !== null) return
+
+    codexRefreshRafRef.current = requestAnimationFrame(() => {
+      codexRefreshRafRef.current = null
+      if (codexRefreshInFlightRef.current) {
+        codexRefreshPendingRef.current = true
+        return
+      }
+
+      codexRefreshInFlightRef.current = true
+      refreshCodexStreamingMessages()
+        .catch(() => {
+          // Best effort; finalization path still does a full refresh.
+        })
+        .finally(() => {
+          codexRefreshInFlightRef.current = false
+          if (codexRefreshPendingRef.current) {
+            codexRefreshPendingRef.current = false
+            scheduleCodexStreamingRefresh()
+          }
+        })
+    })
+  }, [refreshCodexStreamingMessages, sessionRecord?.agent_sdk])
+
+  const applyCodexStreamingPart = useCallback(
+    (part: StreamingPart) => {
+      if (part.type === 'text' && part.text) {
+        console.debug('[CODEX_STREAM_RENDER_APPLY_TEXT]', {
+          sessionId,
+          len: part.text.length,
+          preview: part.text.slice(0, 120)
+        })
+      }
+      if (part.type === 'reasoning' && part.reasoning) {
+        console.debug('[CODEX_STREAM_RENDER_APPLY_REASONING]', {
+          sessionId,
+          len: part.reasoning.length,
+          preview: part.reasoning.slice(0, 120)
+        })
+      }
+      if (part.type === 'tool_use' && part.toolUse) {
+        console.debug('[CODEX_STREAM_RENDER_APPLY_TOOL]', {
+          sessionId,
+          toolId: part.toolUse.id,
+          name: part.toolUse.name,
+          status: part.toolUse.status
+        })
+      }
+
+      setMessages((currentMessages) => {
+        const messageId =
+          codexStreamingMessageIdRef.current ?? `codex-streaming-${crypto.randomUUID()}`
+        codexStreamingMessageIdRef.current = messageId
+
+        const existingIndex = currentMessages.findIndex((message) => message.id === messageId)
+        const nextMessages = [...currentMessages]
+        const existingMessage =
+          existingIndex >= 0
+            ? {
+                ...nextMessages[existingIndex],
+                parts: nextMessages[existingIndex].parts
+                  ? nextMessages[existingIndex].parts!.map((existingPart) => {
+                      if (existingPart.type === 'tool_use' && existingPart.toolUse) {
+                        return {
+                          ...existingPart,
+                          toolUse: { ...existingPart.toolUse }
+                        }
+                      }
+                      if (existingPart.type === 'subtask' && existingPart.subtask) {
+                        return {
+                          ...existingPart,
+                          subtask: {
+                            ...existingPart.subtask,
+                            parts: [...existingPart.subtask.parts]
+                          }
+                        }
+                      }
+                      return { ...existingPart }
+                    })
+                  : ([] as StreamingPart[])
+              }
+            : {
+                id: messageId,
+                role: 'assistant' as const,
+                content: '',
+                timestamp: new Date().toISOString(),
+                parts: [] as StreamingPart[]
+              }
+
+        const nextParts = [...(existingMessage.parts ?? [])]
+
+        if (part.type === 'text') {
+          const lastPart = nextParts[nextParts.length - 1]
+          if (lastPart?.type === 'text') {
+            nextParts[nextParts.length - 1] = {
+              ...lastPart,
+              text: `${lastPart.text ?? ''}${part.text ?? ''}`
+            }
+          } else {
+            nextParts.push({ type: 'text', text: part.text ?? '' })
+          }
+        } else if (part.type === 'reasoning') {
+          const lastPart = nextParts[nextParts.length - 1]
+          if (lastPart?.type === 'reasoning') {
+            nextParts[nextParts.length - 1] = {
+              ...lastPart,
+              reasoning: `${lastPart.reasoning ?? ''}${part.reasoning ?? ''}`
+            }
+          } else {
+            nextParts.push({ type: 'reasoning', reasoning: part.reasoning ?? '' })
+          }
+        } else if (part.type === 'tool_use' && part.toolUse) {
+          const existingToolIndex = nextParts.findIndex(
+            (candidate) =>
+              candidate.type === 'tool_use' && candidate.toolUse?.id === part.toolUse?.id
+          )
+          if (existingToolIndex >= 0) {
+            nextParts[existingToolIndex] = {
+              type: 'tool_use',
+              toolUse: {
+                ...nextParts[existingToolIndex].toolUse!,
+                ...part.toolUse
+              }
+            }
+          } else {
+            nextParts.push(part)
+          }
+        } else {
+          nextParts.push(part)
+        }
+
+        const nextContent = nextParts
+          .filter((candidate) => candidate.type === 'text')
+          .map((candidate) => candidate.text ?? '')
+          .join('')
+
+        const nextMessage: OpenCodeMessage = {
+          ...existingMessage,
+          content: nextContent,
+          parts: nextParts
+        }
+
+        if (existingIndex >= 0) {
+          nextMessages[existingIndex] = nextMessage
+          return nextMessages
+        }
+
+        return [...nextMessages, nextMessage]
+      })
+    },
+    [sessionId, setMessages]
+  )
 
   const handleForkFromAssistantMessage = useCallback(
     async (message: OpenCodeMessage) => {
@@ -3924,6 +4191,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     worktreePath,
     pendingPlan,
     isClaudeCode,
+    sessionRecord?.agent_sdk,
     updateStreamingPartsRef,
     immediateFlush
   ])
@@ -4678,10 +4946,17 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   }, [sessionId, messages, sessionRecord?.agent_sdk])
 
   // Determine if there's streaming content to show
-  const hasStreamingContent = streamingParts.length > 0 || streamingContent.length > 0
+  const hasStreamingContent =
+    sessionRecord?.agent_sdk === 'codex'
+      ? false
+      : streamingParts.length > 0 || streamingContent.length > 0
 
   const streamingStartTimeRef = useRef<string>('')
   const streamingMessage = useMemo(() => {
+    if (sessionRecord?.agent_sdk === 'codex') {
+      streamingStartTimeRef.current = ''
+      return null
+    }
     if (!hasStreamingContent) {
       streamingStartTimeRef.current = ''
       return null
@@ -4696,7 +4971,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       timestamp: streamingStartTimeRef.current,
       parts: streamingParts
     }
-  }, [hasStreamingContent, streamingContent, streamingParts])
+  }, [hasStreamingContent, sessionRecord?.agent_sdk, streamingContent, streamingParts])
 
   const handleRedoRevert = useCallback(() => {
     setInputValue('/redo')
@@ -4708,12 +4983,21 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   // Parts like reasoning, step_start, step_finish, compaction don't show it.
   // When those are the only parts, we still need the 3-dot loading indicator.
   const hasVisibleWritingCursor =
-    hasStreamingContent &&
-    isStreaming &&
-    (streamingContent.length > 0 ||
-      (streamingParts.length > 0 &&
-        (streamingParts[streamingParts.length - 1].type === 'text' ||
-          streamingParts[streamingParts.length - 1].type === 'tool_use')))
+    sessionRecord?.agent_sdk === 'codex'
+      ? isStreaming &&
+        (() => {
+          const lastAssistant = [...visibleMessages].reverse().find((message) => message.role === 'assistant')
+          if (!lastAssistant) return false
+          const lastPart = lastAssistant.parts?.[lastAssistant.parts.length - 1]
+          if (lastPart?.type === 'tool_use') return true
+          return Boolean(lastAssistant.content.trim())
+        })()
+      : hasStreamingContent &&
+        isStreaming &&
+        (streamingContent.length > 0 ||
+          (streamingParts.length > 0 &&
+            (streamingParts[streamingParts.length - 1].type === 'text' ||
+              streamingParts[streamingParts.length - 1].type === 'tool_use')))
 
   const codexPlanCandidate = useMemo(() => {
     const pendingPlanText = pendingPlan?.planContent?.trim()

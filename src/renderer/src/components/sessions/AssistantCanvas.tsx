@@ -35,6 +35,34 @@ function hasToolParts(parts: StreamingPart[] | undefined): boolean {
   return false
 }
 
+function normalizeRenderableParts(parts: StreamingPart[]): StreamingPart[] {
+  const normalized: StreamingPart[] = []
+
+  for (const part of parts) {
+    const previous = normalized[normalized.length - 1]
+
+    if (part.type === 'text' && previous?.type === 'text') {
+      normalized[normalized.length - 1] = {
+        ...previous,
+        text: `${previous.text ?? ''}${part.text ?? ''}`
+      }
+      continue
+    }
+
+    if (part.type === 'reasoning' && previous?.type === 'reasoning') {
+      normalized[normalized.length - 1] = {
+        ...previous,
+        reasoning: `${previous.reasoning ?? ''}${part.reasoning ?? ''}`
+      }
+      continue
+    }
+
+    normalized.push(part)
+  }
+
+  return normalized
+}
+
 /** Render interleaved parts (text + tool cards) */
 function renderParts(
   parts: StreamingPart[],
@@ -42,15 +70,16 @@ function renderParts(
   cwd?: string | null,
   forceCompactTools = false
 ): React.JSX.Element {
+  const normalizedParts = normalizeRenderableParts(parts)
   const renderedParts: React.JSX.Element[] = []
   let index = 0
 
-  while (index < parts.length) {
-    const part = parts[index]
+  while (index < normalizedParts.length) {
+    const part = normalizedParts[index]
 
     if (part.type === 'text') {
       const text = part.text ?? ''
-      const isLastPart = index === parts.length - 1
+      const isLastPart = index === normalizedParts.length - 1
       if (!hasMeaningfulText(text)) {
         if (isStreaming && isLastPart) {
           renderedParts.push(<StreamingCursor key={`cursor-${index}`} />)
@@ -92,7 +121,7 @@ function renderParts(
     if (part.type === 'reasoning' && part.reasoning) {
       // Reasoning is still streaming only if the overall message is streaming
       // AND there are no meaningful parts after this one (text with content, tool_use, etc.)
-      const hasContentAfter = parts.slice(index + 1).some((p) => {
+      const hasContentAfter = normalizedParts.slice(index + 1).some((p) => {
         if (p.type === 'tool_use') return true
         if (p.type === 'text' && hasMeaningfulText(p.text)) return true
         if (p.type === 'reasoning') return true
@@ -132,9 +161,11 @@ function renderParts(
     <>
       {renderedParts}
       {/* Show streaming cursor at end if last part is a tool (text will come after) */}
-      {isStreaming && parts.length > 0 && parts[parts.length - 1].type === 'tool_use' && (
-        <StreamingCursor />
-      )}
+      {isStreaming &&
+        normalizedParts.length > 0 &&
+        normalizedParts[normalizedParts.length - 1].type === 'tool_use' && (
+          <StreamingCursor />
+        )}
     </>
   )
 }
