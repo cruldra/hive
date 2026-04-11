@@ -88,10 +88,10 @@ function renderParts(
         continue
       }
       renderedParts.push(
-        <span key={`part-${index}`}>
+        <div key={`part-${index}`}>
           <MarkdownRenderer content={text} />
           {isStreaming && isLastPart && <StreamingCursor />}
-        </span>
+        </div>
       )
       index += 1
       continue
@@ -182,10 +182,10 @@ export const AssistantCanvas = memo(function AssistantCanvas({
 
   return (
     <div
-      className={cn('px-6', shouldUseCompactToolSpacing ? 'py-1' : 'py-5')}
+      className={cn('px-6', shouldUseCompactToolSpacing ? 'py-3' : 'py-5')}
       data-testid="message-assistant"
     >
-      <div className="text-sm text-foreground leading-relaxed">
+      <div className="text-sm text-foreground leading-relaxed space-y-2">
         {hasParts ? (
           renderParts(parts, isStreaming, cwd, shouldUseCompactToolSpacing)
         ) : (
