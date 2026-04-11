@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { ToolCard } from './ToolCard'
 import { StreamingCursor } from './StreamingCursor'
 import { MarkdownRenderer } from './MarkdownRenderer'
@@ -65,12 +65,11 @@ function normalizeRenderableParts(parts: StreamingPart[]): StreamingPart[] {
 
 /** Render interleaved parts (text + tool cards) */
 function renderParts(
-  parts: StreamingPart[],
+  normalizedParts: StreamingPart[],
   isStreaming: boolean,
   cwd?: string | null,
   forceCompactTools = false
 ): React.JSX.Element {
-  const normalizedParts = normalizeRenderableParts(parts)
   const renderedParts: React.JSX.Element[] = []
   let index = 0
 
@@ -178,6 +177,10 @@ export const AssistantCanvas = memo(function AssistantCanvas({
   cwd
 }: AssistantCanvasProps): React.JSX.Element {
   const hasParts = parts && parts.length > 0
+  const normalizedParts = useMemo(
+    () => (hasParts ? normalizeRenderableParts(parts!) : undefined),
+    [hasParts, parts]
+  )
   const shouldUseCompactToolSpacing = hasToolParts(parts)
 
   return (
@@ -187,7 +190,7 @@ export const AssistantCanvas = memo(function AssistantCanvas({
     >
       <div className="text-sm text-foreground leading-relaxed">
         {hasParts ? (
-          renderParts(parts, isStreaming, cwd, shouldUseCompactToolSpacing)
+          renderParts(normalizedParts!, isStreaming, cwd, shouldUseCompactToolSpacing)
         ) : (
           <>
             <MarkdownRenderer content={content} />
