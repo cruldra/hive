@@ -107,6 +107,61 @@ describe('Session 8: Rich Tool Rendering', () => {
       expect(screen.getByText(/Lines 10/)).toBeTruthy()
     })
 
+    test('renders sed-derived line range context', () => {
+      render(
+        <ReadToolView
+          name="Read"
+          input={{ file_path: 'main.py', offset: 1, limit: 79 }}
+          output="print('hello')"
+          status="success"
+        />
+      )
+
+      expect(screen.getByText('Lines 1–80')).toBeTruthy()
+    })
+
+    test('preserves exact discontinuous line numbers for numbered excerpts', () => {
+      render(
+        <ReadToolView
+          name="Read"
+          input={{
+            file_path: 'src/main.ts',
+            line_ranges: [
+              { start: 40, end: 41 },
+              { start: 220, end: 221 }
+            ]
+          }}
+          output={'   40\talpha\n   41\tbeta\n  220\tgamma\n  221\tdelta'}
+          status="success"
+        />
+      )
+
+      expect(screen.getByText('Lines 40–41, 220–221')).toBeTruthy()
+      expect(screen.getByText('40')).toBeTruthy()
+      expect(screen.getByText('220')).toBeTruthy()
+      expect(screen.getByText('gamma')).toBeTruthy()
+    })
+
+    test('truncates exact numbered excerpts using parsed line count', () => {
+      const output = Array.from({ length: 25 }, (_, index) => `${index + 1}`.padStart(5) + '\tline')
+        .join('\n')
+
+      render(
+        <ReadToolView
+          name="Read"
+          input={{
+            file_path: 'src/main.ts',
+            line_ranges: [{ start: 1, end: 25 }]
+          }}
+          output={output}
+          status="success"
+        />
+      )
+
+      const showAllBtn = screen.getByTestId('show-all-button')
+      expect(showAllBtn.textContent).toContain('25 lines')
+    })
+
     test('renders error state', () => {
       render(
         <ReadToolView
@@ -474,7 +529,8 @@ describe('Session 8: Rich Tool Rendering', () => {
     test('routes Grep tool to GrepToolView', () => {
       render(<ToolCard toolUse={makeToolUse('Grep', 'src/a.ts:1:match', { pattern: 'test' })} />)
 
-      fireEvent.click(screen.getByTestId('tool-card-header'))
+      const compactTool = screen.getByTestId('compact-file-tool')
+      fireEvent.click(compactTool.querySelector('button')!)
 
       expect(screen.getByTestId('grep-tool-view')).toBeTruthy()
     })
@@ -482,7 +538,8 @@ describe('Session 8: Rich Tool Rendering', () => {
     test('routes Glob tool to GrepToolView', () => {
       render(<ToolCard toolUse={makeToolUse('Glob', 'src/a.ts\nsrc/b.ts', { pattern: '*.ts' })} />)
 
-      fireEvent.click(screen.getByTestId('tool-card-header'))
+      const compactTool = screen.getByTestId('compact-file-tool')
+      fireEvent.click(compactTool.querySelector('button')!)
 
       expect(screen.getByTestId('grep-tool-view')).toBeTruthy()
     })

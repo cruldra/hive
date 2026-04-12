@@ -4,7 +4,10 @@ import {
   type StreamingPart
 } from '@/lib/opencode-transcript'
 import { correlateSubtasksIntoTaskTools } from '@/lib/codex-subtask-correlation'
-import { normalizeCodexToolName } from '@shared/codex-tool-normalizer'
+import {
+  normalizeCodexToolName,
+  normalizeCommandExecutionTool
+} from '@shared/codex-tool-normalizer'
 
 function parseJson<T>(value: string | null): T | null {
   if (!value) return null
@@ -29,12 +32,23 @@ function parseToolPart(activity: SessionActivity): StreamingPart | null {
   const payload = parseJson<Record<string, unknown>>(activity.payload_json)
   const item =
     payload && typeof payload.item === 'object' ? (payload.item as Record<string, unknown>) : null
-  const toolName = normalizeCodexToolName(
-    (typeof item?.toolName === 'string' && item.toolName) ||
-      (typeof item?.name === 'string' && item.name) ||
-      (typeof item?.type === 'string' && item.type) ||
-      'unknown'
-  )
+  const itemType = typeof item?.type === 'string' ? item.type : ''
+  const normalizedCommandTool =
+    itemType === 'commandExecution'
+      ? normalizeCommandExecutionTool({
+          command: item?.command ?? item?.cmd,
+          input: item?.input,
+          commandActions: Array.isArray(item?.commandActions) ? item.commandActions : null
+        })
+      : null
+  const toolName =
+    normalizedCommandTool?.toolName ??
+    normalizeCodexToolName(
+      (typeof item?.toolName === 'string' && item.toolName) ||
+        (typeof item?.name === 'string' && item.name) ||
+        itemType ||
+        'unknown'
+    )
   const rawInput =
     item?.type === 'collabAgentToolCall'
       ? {
@@ -46,7 +60,8 @@ function parseToolPart(activity: SessionActivity): StreamingPart | null {
       : item?.input && typeof item.input === 'object' && !Array.isArray(item.input)
         ? (item.input as Record<string, unknown>)
         : {}
-  const input = Array.isArray(item?.changes) ? { ...rawInput, changes: item.changes } : rawInput
+  const mergedInput = Array.isArray(item?.changes) ? { ...rawInput, changes: item.changes } : rawInput
+  const input = normalizedCommandTool?.input ?? mergedInput
   const output =
     item?.output ?? payload?.output ?? item?.aggregatedOutput ?? payload?.aggregatedOutput
 

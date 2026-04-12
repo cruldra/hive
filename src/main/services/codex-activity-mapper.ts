@@ -1,5 +1,8 @@
 import type { SessionActivityCreate, SessionActivityKind, SessionActivityTone } from '../db'
-import { normalizeCodexToolName } from '@shared/codex-tool-normalizer'
+import {
+  normalizeCodexToolName,
+  normalizeCommandExecutionTool
+} from '@shared/codex-tool-normalizer'
 import type { CodexManagerEvent } from './codex-app-server-manager'
 import { asObject, asString } from './codex-utils'
 import type { ItemStartedNotification } from '@shared/codex-schemas/v2/ItemStartedNotification'
@@ -90,14 +93,27 @@ export function mapCodexManagerEventToActivity(
         legacyType === 'filechange'
       if (!isTool) return null
 
-      const toolName = normalizeCodexToolName(
-        typedType ??
-        asString(legacyItem?.toolName) ??
-        asString(legacyItem?.name) ??
-        asString(legacyItem?.type) ??
-        asString(payload?.toolName) ??
-        'unknown'
-      )
+      const normalizedCommandTool =
+        typedType === 'commandExecution'
+          ? normalizeCommandExecutionTool({
+              command: typedItem?.command ?? legacyItem?.command ?? payload?.command,
+              input: legacyItem?.input ?? payload?.input,
+              commandActions:
+                typedItem?.commandActions ??
+                (Array.isArray(legacyItem?.commandActions) ? legacyItem.commandActions : null)
+            })
+          : null
+
+      const toolName =
+        normalizedCommandTool?.toolName ??
+        normalizeCodexToolName(
+          typedType ??
+            asString(legacyItem?.toolName) ??
+            asString(legacyItem?.name) ??
+            asString(legacyItem?.type) ??
+            asString(payload?.toolName) ??
+            'unknown'
+        )
 
       if (event.method === 'item.started' || event.method === 'item/started') {
         return buildActivity(sessionId, agentSessionId, event, 'tool.started', 'tool', toolName)

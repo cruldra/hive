@@ -18,7 +18,11 @@ import { toast } from '@/lib/toast'
 import { ModeToggle } from './ModeToggle'
 import { SuperToggle } from './SuperToggle'
 import { ModelSelector } from './ModelSelector'
-import { VirtualizedMessageList, type VirtualizedMessageListHandle } from './VirtualizedMessageList'
+import {
+  VirtualizedMessageList,
+  type VirtualizedMessageListHandle,
+  type VirtualizedMessageListViewportAnchor
+} from './VirtualizedMessageList'
 import { ContextIndicator } from './ContextIndicator'
 import { AttachmentButton } from './AttachmentButton'
 import { AttachmentPreview } from './AttachmentPreview'
@@ -87,7 +91,7 @@ import type { ToolStatus, ToolUseInfo } from './ToolCard'
 import {
   PLAN_MODE_PREFIX,
   ASK_MODE_PREFIX,
-  SUPER_PLAN_MODE_PREFIX,
+  getSuperPlanModePrefix,
   stripPlanModePrefix,
   isPlanLike
 } from '@/lib/constants'
@@ -467,7 +471,7 @@ function PrCommentAttachments(): React.JSX.Element | null {
 // Main SessionView component
 export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element {
   // State
-  const [messages, setMessages] = useState<OpenCodeMessage[]>([])
+  const [messages, setMessagesState] = useState<OpenCodeMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [viewState, setViewState] = useState<SessionViewState>({ status: 'connecting' })
   const [isSending, setIsSending] = useState(false)
@@ -694,6 +698,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const programmaticScrollResetRef = useRef<number | null>(null)
   const manualScrollIntentRef = useRef(false)
   const pointerDownInScrollerRef = useRef(false)
+  const pendingViewportAnchorRef = useRef<VirtualizedMessageListViewportAnchor | null>(null)
+  const [viewportRestoreNonce, setViewportRestoreNonce] = useState(0)
 
   // Streaming rAF ref (frame-synced flushing for text updates)
   const rafRef = useRef<number | null>(null)
@@ -891,6 +897,32 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     }
   }, [])
 
+  const captureLockedViewportAnchor = useCallback((): boolean => {
+    if (sessionRecord?.agent_sdk !== 'codex' || isAutoScrollEnabledRef.current) {
+      pendingViewportAnchorRef.current = null
+      return false
+    }
+
+    const anchor = virtualizedListRef.current?.captureViewportAnchor()
+    pendingViewportAnchorRef.current = anchor
+    return anchor !== null
+  }, [sessionRecord?.agent_sdk])
+
+  const setMessages = useCallback(
+    (
+      nextMessages:
+        | OpenCodeMessage[]
+        | ((currentMessages: OpenCodeMessage[]) => OpenCodeMessage[])
+    ) => {
+      const shouldRestoreViewport = captureLockedViewportAnchor()
+      setMessagesState(nextMessages)
+      if (shouldRestoreViewport) {
+        setViewportRestoreNonce((current) => current + 1)
+      }
+    },
+    [captureLockedViewportAnchor]
+  )
+
   // Auto-scroll to bottom when new messages arrive or streaming updates
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = isStreaming ? 'instant' : 'smooth') => {
@@ -976,9 +1008,30 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     }
   }, [messages, streamingContent, streamingParts, scrollToBottom])
 
+  useLayoutEffect(() => {
+    const anchor = pendingViewportAnchorRef.current
+    if (!anchor) return
+
+    if (isAutoScrollEnabledRef.current) {
+      pendingViewportAnchorRef.current = null
+      return
+    }
+
+    markProgrammaticScroll()
+    const restored = virtualizedListRef.current?.restoreViewportAnchor(anchor)
+    if (!restored) return
+
+    const el = scrollContainerRef.current
+    if (el) {
+      lastScrollTopRef.current = el.scrollTop
+    }
+    pendingViewportAnchorRef.current = null
+  }, [markProgrammaticScroll, messages, viewportRestoreNonce])
+
   // Reset auto-scroll state on session switch
   useEffect(() => {
     resetAutoScrollState()
+    pendingViewportAnchorRef.current = null
   }, [resetAutoScrollState, sessionId])
 
   // Instant scroll to bottom when session view becomes connected with messages.
@@ -3052,7 +3105,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             // Apply mode prefix for OpenCode sessions (Claude Code uses native plan mode)
             const modePrefix =
               currentMode === 'super-plan'
-                ? SUPER_PLAN_MODE_PREFIX
+                ? getSuperPlanModePrefix(sessionAgentSdk)
                 : currentMode === 'plan' && !skipPlanModePrefix
                   ? PLAN_MODE_PREFIX
                   : ''
@@ -4136,7 +4189,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         const optimisticMode = currentModeForStatus
         const optimisticModePrefix =
           optimisticMode === 'super-plan'
-            ? SUPER_PLAN_MODE_PREFIX
+            ? getSuperPlanModePrefix(sessionAgentSdk)
             : optimisticMode === 'plan' && !skipPlanModePrefix
               ? PLAN_MODE_PREFIX
               : ''
@@ -4262,7 +4315,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               // Unknown command — send as regular prompt (SDK may handle it)
               const modePrefix =
                 currentModeForStatus === 'super-plan'
-                  ? SUPER_PLAN_MODE_PREFIX
+                  ? getSuperPlanModePrefix(sessionAgentSdk)
                   : currentModeForStatus === 'plan' && !skipPlanModePrefix
                     ? PLAN_MODE_PREFIX
                     : ''
@@ -4300,7 +4353,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             // Regular prompt — existing code (with mode prefix, attachments, etc.)
             const modePrefix =
               currentModeForStatus === 'super-plan'
-                ? SUPER_PLAN_MODE_PREFIX
+                ? getSuperPlanModePrefix(sessionAgentSdk)
                 : currentModeForStatus === 'plan' && !skipPlanModePrefix
                   ? PLAN_MODE_PREFIX
                   : ''
@@ -5477,6 +5530,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               queuedMessages={queuedMessages}
               completionEntry={completionEntry}
               scrollElement={scrollElement}
+              lockViewport={sessionAgentSdk === 'codex' && showScrollFab}
             />
           )}
         </div>

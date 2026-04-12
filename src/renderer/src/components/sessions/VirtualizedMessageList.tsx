@@ -12,14 +12,14 @@ import beeIcon from '@/assets/bee.png'
 // ---------------------------------------------------------------------------
 
 type VirtualItem =
-  | { type: 'message'; message: OpenCodeMessage }
-  | { type: 'revert-banner' }
-  | { type: 'error-banner' }
-  | { type: 'retry-banner' }
-  | { type: 'streaming'; message: OpenCodeMessage }
-  | { type: 'typing-indicator' }
-  | { type: 'queued'; queuedMessage: { id: string; content: string } }
-  | { type: 'completion' }
+  | { key: string; type: 'message'; message: OpenCodeMessage }
+  | { key: string; type: 'revert-banner' }
+  | { key: string; type: 'error-banner' }
+  | { key: string; type: 'retry-banner' }
+  | { key: string; type: 'streaming'; message: OpenCodeMessage }
+  | { key: string; type: 'typing-indicator' }
+  | { key: string; type: 'queued'; queuedMessage: { id: string; content: string } }
+  | { key: string; type: 'completion' }
 
 export interface VirtualizedMessageListProps {
   messages: OpenCodeMessage[]
@@ -41,10 +41,24 @@ export interface VirtualizedMessageListProps {
   queuedMessages: { id: string; content: string }[]
   completionEntry: { word?: string; durationMs?: number } | null
   scrollElement: HTMLDivElement | null
+  lockViewport: boolean
 }
 
 export interface VirtualizedMessageListHandle {
   scrollToEnd: (behavior?: ScrollBehavior) => void
+  captureViewportAnchor: () => VirtualizedMessageListViewportAnchor | null
+  restoreViewportAnchor: (anchor: VirtualizedMessageListViewportAnchor) => boolean
+}
+
+export interface VirtualizedMessageListViewportAnchor {
+  itemKey: string
+  offsetWithinItem: number
+  fallbackScrollTop: number
+  fallbackScrollHeight: number
+}
+
+export function getVirtualizedMessageListItemKey(item: VirtualItem): string {
+  return item.key
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +85,8 @@ export const VirtualizedMessageList = memo(
   hasVisibleWritingCursor,
   queuedMessages,
   completionEntry,
-  scrollElement
+  scrollElement,
+  lockViewport
 }: VirtualizedMessageListProps, ref): React.JSX.Element {
   // Build the flat item array that drives the virtualizer
   const items = useMemo(() => {
@@ -79,42 +94,46 @@ export const VirtualizedMessageList = memo(
 
     // Messages
     for (const msg of messages) {
-      result.push({ type: 'message' as const, message: msg })
+      result.push({ key: `message:${msg.id}`, type: 'message' as const, message: msg })
     }
 
     // Revert banner
     if (revertMessageID && revertedUserCount > 0) {
-      result.push({ type: 'revert-banner' as const })
+      result.push({ key: `revert-banner:${revertMessageID}`, type: 'revert-banner' as const })
     }
 
     // Error banner
     if (sessionErrorMessage) {
-      result.push({ type: 'error-banner' as const })
+      result.push({ key: 'error-banner', type: 'error-banner' as const })
     }
 
     // Retry banner
     if (sessionRetry) {
-      result.push({ type: 'retry-banner' as const })
+      result.push({ key: 'retry-banner', type: 'retry-banner' as const })
     }
 
     // Streaming message
     if (streamingMessage) {
-      result.push({ type: 'streaming' as const, message: streamingMessage })
+      result.push({
+        key: `streaming:${streamingMessage.id}`,
+        type: 'streaming' as const,
+        message: streamingMessage
+      })
     }
 
     // Typing indicator
     if (isSending && !hasVisibleWritingCursor) {
-      result.push({ type: 'typing-indicator' as const })
+      result.push({ key: 'typing-indicator', type: 'typing-indicator' as const })
     }
 
     // Queued messages
     for (const msg of queuedMessages) {
-      result.push({ type: 'queued' as const, queuedMessage: msg })
+      result.push({ key: `queued:${msg.id}`, type: 'queued' as const, queuedMessage: msg })
     }
 
     // Completion badge
     if (completionEntry && !isSending && !sessionErrorMessage) {
-      result.push({ type: 'completion' as const })
+      result.push({ key: 'completion', type: 'completion' as const })
     }
 
     return result
@@ -134,17 +153,56 @@ export const VirtualizedMessageList = memo(
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollElement,
+    getItemKey: (index) => getVirtualizedMessageListItemKey(items[index]),
     estimateSize: () => 150,
     overscan: 5
   })
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = lockViewport ? () => false : undefined
 
   useImperativeHandle(ref, () => ({
     scrollToEnd: (behavior?: ScrollBehavior) => {
       if (items.length > 0) {
         virtualizer.scrollToIndex(items.length - 1, { align: 'end', behavior: behavior ?? 'instant' })
       }
+    },
+    captureViewportAnchor: () => {
+      if (!scrollElement || items.length === 0) return null
+
+      const scrollTop = scrollElement.scrollTop
+      const anchorItem =
+        virtualizer.getVirtualItemForOffset(scrollTop) ?? virtualizer.measurementsCache[0]
+
+      if (!anchorItem) return null
+
+      return {
+        itemKey: String(anchorItem.key),
+        offsetWithinItem: Math.max(0, scrollTop - anchorItem.start),
+        fallbackScrollTop: scrollTop,
+        fallbackScrollHeight: scrollElement.scrollHeight
+      }
+    },
+    restoreViewportAnchor: (anchor: VirtualizedMessageListViewportAnchor) => {
+      if (!scrollElement) return false
+
+      const anchorItem = virtualizer.measurementsCache.find(
+        (measurement) => String(measurement.key) === anchor.itemKey
+      )
+      const fallbackScrollTop =
+        anchor.fallbackScrollTop + (scrollElement.scrollHeight - anchor.fallbackScrollHeight)
+      const nextScrollTop = anchorItem
+        ? anchorItem.start + anchor.offsetWithinItem
+        : fallbackScrollTop
+      const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight)
+      const clampedScrollTop = Math.max(0, Math.min(nextScrollTop, maxScrollTop))
+
+      if (Math.abs(scrollElement.scrollTop - clampedScrollTop) < 1) {
+        return true
+      }
+
+      scrollElement.scrollTop = clampedScrollTop
+      return true
     }
-  }), [virtualizer, items.length])
+  }), [items, scrollElement, virtualizer])
 
   // Render a single virtual item
   const renderItem = (item: VirtualItem) => {
@@ -293,9 +351,10 @@ export const VirtualizedMessageList = memo(
       >
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const item = items[virtualRow.index]
+          if (!item) return null
           return (
             <div
-              key={virtualRow.key}
+              key={item.key}
               data-index={virtualRow.index}
               ref={virtualizer.measureElement}
               style={{

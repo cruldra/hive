@@ -73,6 +73,118 @@ describe('codex timeline derivation', () => {
     expect(timeline[2]?.parts?.some((part) => part.type === 'tool_use')).toBe(true)
   })
 
+  it('normalizes commandExecution activities into Read and Glob tool cards', () => {
+    const messages: SessionMessage[] = [
+      {
+        id: 'db-user-1',
+        session_id: 'session-1',
+        role: 'user',
+        content: 'Inspect the project files',
+        opencode_message_id: 'turn-1:user',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Inspect the project files' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:00.000Z'
+      },
+      {
+        id: 'db-assistant-1',
+        session_id: 'session-1',
+        role: 'assistant',
+        content: 'I checked the files.',
+        opencode_message_id: 'turn-1:assistant',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'I checked the files.' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:05.000Z'
+      }
+    ]
+
+    const activities: SessionActivity[] = [
+      {
+        id: 'activity-read',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-read',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'Bash',
+        payload_json: JSON.stringify({
+          item: {
+            type: 'commandExecution',
+            command: 'sed -n "1,80p" main.py',
+            commandActions: [
+              {
+                type: 'read',
+                command: 'sed -n "1,80p" main.py',
+                name: 'main.py',
+                path: 'main.py'
+              }
+            ],
+            aggregatedOutput: "print('hello')\n"
+          }
+        }),
+        sequence: null,
+        created_at: '2026-03-14T10:00:02.000Z'
+      },
+      {
+        id: 'activity-glob',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-glob',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'Bash',
+        payload_json: JSON.stringify({
+          item: {
+            type: 'commandExecution',
+            command: 'rg --files .',
+            commandActions: [
+              {
+                type: 'listFiles',
+                command: 'rg --files .',
+                path: '.'
+              }
+            ],
+            aggregatedOutput: 'src/main.py\nsrc/lib/util.py\n'
+          }
+        }),
+        sequence: null,
+        created_at: '2026-03-14T10:00:03.000Z'
+      }
+    ]
+
+    const timeline = deriveCodexTimelineMessages(messages, activities)
+
+    expect(
+      timeline.some((message) =>
+        message.parts?.some(
+          (part) =>
+            part.type === 'tool_use' &&
+            part.toolUse?.id === 'tool-read' &&
+            part.toolUse.name === 'Read' &&
+            String(part.toolUse.input?.file_path) === 'main.py'
+        )
+      )
+    ).toBe(true)
+    expect(
+      timeline.some((message) =>
+        message.parts?.some(
+          (part) =>
+            part.type === 'tool_use' &&
+            part.toolUse?.id === 'tool-glob' &&
+            part.toolUse.name === 'Glob' &&
+            String(part.toolUse.input?.path) === '.'
+        )
+      )
+    ).toBe(true)
+  })
+
   it('projects persisted plan.ready activity into an ExitPlanMode tool card', () => {
     const messages: SessionMessage[] = [
       {
@@ -138,6 +250,148 @@ describe('codex timeline derivation', () => {
           part.toolUse?.name === 'ExitPlanMode' &&
           String(part.toolUse.input?.plan) === 'Plan\n\n1. Add the function\n2. Add tests' &&
           part.toolUse.status === 'pending'
+      )
+    ).toBe(true)
+  })
+
+  it('re-normalizes persisted commandExecution activities from Bash to semantic tools', () => {
+    const messages: SessionMessage[] = [
+      {
+        id: 'db-user-1',
+        session_id: 'session-1',
+        role: 'user',
+        content: 'Inspect the file',
+        opencode_message_id: 'turn-1:user',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Inspect the file' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:00.000Z'
+      },
+      {
+        id: 'db-assistant-1',
+        session_id: 'session-1',
+        role: 'assistant',
+        content: 'Done',
+        opencode_message_id: 'turn-1:assistant',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Done' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:10.000Z'
+      }
+    ]
+
+    const activities: SessionActivity[] = [
+      {
+        id: 'activity-bash-read',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-read-1',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'Bash',
+        payload_json: JSON.stringify({
+          item: {
+            type: 'commandExecution',
+            command: `sed -n '10,40p' src/index.ts`,
+            commandActions: [
+              {
+                type: 'read',
+                command: `sed -n '10,40p' src/index.ts`,
+                name: 'index.ts',
+                path: 'src/index.ts'
+              }
+            ],
+            aggregatedOutput: 'ok'
+          }
+        }),
+        sequence: null,
+        created_at: '2026-03-14T10:00:05.000Z'
+      }
+    ]
+
+    const timeline = deriveCodexTimelineMessages(messages, activities)
+    const toolRow = timeline.find((message) => message.id === 'turn-1:tool:tool-read-1')
+
+    expect(
+      toolRow?.parts?.some(
+        (part) =>
+          part.type === 'tool_use' &&
+          part.toolUse?.name === 'Read' &&
+          part.toolUse?.input.file_path === 'src/index.ts'
+      )
+    ).toBe(true)
+  })
+
+  it('re-normalizes persisted numbered nl|sed commandExecution activities to Read with exact ranges', () => {
+    const messages: SessionMessage[] = [
+      {
+        id: 'db-user-1',
+        session_id: 'session-1',
+        role: 'user',
+        content: 'Inspect specific file sections',
+        opencode_message_id: 'turn-1:user',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Inspect specific file sections' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:00.000Z'
+      },
+      {
+        id: 'db-assistant-1',
+        session_id: 'session-1',
+        role: 'assistant',
+        content: 'Done',
+        opencode_message_id: 'turn-1:assistant',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Done' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:10.000Z'
+      }
+    ]
+
+    const activities: SessionActivity[] = [
+      {
+        id: 'activity-bash-read-ranges',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-read-ranges-1',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'Bash',
+        payload_json: JSON.stringify({
+          item: {
+            type: 'commandExecution',
+            command:
+              "nl -ba src/renderer/src/components/sessions/ToolCard.tsx | sed -n '40,120p;220,250p;570,620p;875,915p'",
+            aggregatedOutput: 'ok'
+          }
+        }),
+        sequence: null,
+        created_at: '2026-03-14T10:00:05.000Z'
+      }
+    ]
+
+    const timeline = deriveCodexTimelineMessages(messages, activities)
+    const toolRow = timeline.find((message) => message.id === 'turn-1:tool:tool-read-ranges-1')
+
+    expect(
+      toolRow?.parts?.some(
+        (part) =>
+          part.type === 'tool_use' &&
+          part.toolUse?.name === 'Read' &&
+          part.toolUse?.input.file_path === 'src/renderer/src/components/sessions/ToolCard.tsx' &&
+          JSON.stringify(part.toolUse?.input.line_ranges) ===
+            JSON.stringify([
+              { start: 40, end: 120 },
+              { start: 220, end: 250 },
+              { start: 570, end: 620 },
+              { start: 875, end: 915 }
+            ])
       )
     ).toBe(true)
   })

@@ -60,6 +60,41 @@ describe('codex-activity-mapper typed payloads', () => {
       expect(result!.summary).toBe('Bash')
     })
 
+    it('read commandExecution item returns Read activity summary', () => {
+      const event = makeEvent({
+        method: 'item/started',
+        payload: {
+          item: {
+            type: 'commandExecution',
+            id: 'cmd-read-1',
+            command: `sed -n '1,20p' src/index.ts`,
+            cwd: '/home/user',
+            processId: null,
+            source: 'agent',
+            status: 'running',
+            commandActions: [
+              {
+                type: 'read',
+                command: `sed -n '1,20p' src/index.ts`,
+                name: 'index.ts',
+                path: 'src/index.ts'
+              }
+            ],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null
+          },
+          threadId: 'thread-1',
+          turnId: 'turn-1'
+        }
+      })
+
+      const result = mapActivity(event)
+
+      expect(result).not.toBeNull()
+      expect(result!.summary).toBe('Read')
+    })
+
     it('fileChange item returns tool.started activity', () => {
       const event = makeEvent({
         method: 'item/started',
@@ -179,6 +214,41 @@ describe('codex-activity-mapper typed payloads', () => {
       expect(result!.kind).toBe('tool.updated')
       expect(result!.tone).toBe('tool')
       expect(result!.summary).toBe('Bash')
+    })
+
+    it('search commandExecution updated returns Grep activity summary', () => {
+      const event = makeEvent({
+        method: 'item/updated',
+        payload: {
+          item: {
+            type: 'commandExecution',
+            id: 'cmd-search-1',
+            command: `rg -n "needle" src`,
+            cwd: '/project',
+            processId: 'p4',
+            source: 'agent',
+            status: 'running',
+            commandActions: [
+              {
+                type: 'search',
+                command: `rg -n "needle" src`,
+                query: 'needle',
+                path: 'src'
+              }
+            ],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null
+          },
+          threadId: 'thread-1',
+          turnId: 'turn-1'
+        }
+      })
+
+      const result = mapActivity(event)
+
+      expect(result).not.toBeNull()
+      expect(result!.summary).toBe('Grep')
     })
   })
 
