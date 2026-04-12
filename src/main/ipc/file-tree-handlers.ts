@@ -531,11 +531,7 @@ export function registerFileTreeHandlers(window: BrowserWindow): void {
           persistent: true,
           ignoreInitial: true,
           depth: 10,
-          followSymlinks: false,
-          awaitWriteFinish: {
-            stabilityThreshold: 100,
-            pollInterval: 50
-          }
+          followSymlinks: false
         })
 
         watcher.on('add', (path) => {
@@ -615,6 +611,10 @@ export function registerFileTreeHandlers(window: BrowserWindow): void {
       }
     }
   )
+}
+
+export function getFileTreeWatcherCount(): number {
+  return watchers.size
 }
 
 // Cleanup all watchers (called on app quit)

@@ -193,11 +193,7 @@ export async function watchWorktree(worktreePath: string): Promise<void> {
     ignored: WORKTREE_IGNORE_PATTERNS,
     persistent: true,
     ignoreInitial: true,
-    depth: 10,
-    awaitWriteFinish: {
-      stabilityThreshold: 200,
-      pollInterval: 50
-    }
+    depth: 10
   })
 
   const entry: WatcherEntry = {
@@ -290,6 +286,10 @@ export async function unwatchWorktree(worktreePath: string): Promise<void> {
   }
 
   log.info('Worktree watcher stopped', { worktreePath })
+}
+
+export function getWorktreeWatcherCount(): number {
+  return watchers.size
 }
 
 export async function cleanupWorktreeWatchers(): Promise<void> {

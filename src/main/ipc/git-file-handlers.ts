@@ -27,13 +27,15 @@ import {
   initWorktreeWatcher,
   watchWorktree,
   unwatchWorktree,
-  cleanupWorktreeWatchers
+  cleanupWorktreeWatchers,
+  getWorktreeWatcherCount
 } from '../services/worktree-watcher'
 import {
   initBranchWatcher,
   watchBranch,
   unwatchBranch,
-  cleanupBranchWatchers
+  cleanupBranchWatchers,
+  getBranchWatcherCount
 } from '../services/branch-watcher'
 
 const execAsync = promisify(exec)
@@ -1233,7 +1235,7 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
 }
 
 // Re-export cleanup functions for app quit handler
-export { cleanupWorktreeWatchers, cleanupBranchWatchers }
+export { cleanupWorktreeWatchers, cleanupBranchWatchers, getWorktreeWatcherCount, getBranchWatcherCount }
 
 // Export types for use in preload
 export type {
