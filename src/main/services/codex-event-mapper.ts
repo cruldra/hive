@@ -370,10 +370,10 @@ function extractItemInfo(event: CodexManagerEvent): ItemInfo {
   const payload = asObject(event.payload)
   const item = asObject(payload?.item)
   const itemType = asString(item?.type) ?? asString(payload?.type)
-  const normalizedCommandTool =
-    itemType === 'commandExecution'
-      ? normalizeCommandExecutionPresentation(item, payload)
-      : null
+  const isCommandExecution = itemType?.toLowerCase() === 'commandexecution'
+  const normalizedCommandTool = isCommandExecution
+    ? normalizeCommandExecutionPresentation(item, payload)
+    : null
 
   const toolName =
     normalizedCommandTool?.toolName ??

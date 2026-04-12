@@ -158,6 +158,7 @@ function tryParseSedRead(command: string): NormalizedCommandExecutionTool | null
   const input: Record<string, unknown> = { file_path: rawPath }
   if (endLine > startLine) {
     input.offset = startLine
+    // ReadToolView currently renders the range as offset + limit.
     input.limit = endLine - startLine
   }
 
