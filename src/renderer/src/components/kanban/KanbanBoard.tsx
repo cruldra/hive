@@ -167,7 +167,7 @@ export function KanbanBoard({ projectId, projectPath, connectionId, isPinnedMode
     }
 
     const sourceRect = sourceEl.getBoundingClientRect()
-    const sx = sourceRect.left + sourceRect.width / 2 - boardRect.left
+    const sx = sourceRect.left - boardRect.left
     const sy = sourceRect.top + sourceRect.height / 2 - boardRect.top
 
     const paths: Array<{ key: string; d: string }> = []
@@ -177,7 +177,7 @@ export function KanbanBoard({ projectId, projectPath, connectionId, isPinnedMode
       if (!targetEl) continue
 
       const targetRect = targetEl.getBoundingClientRect()
-      const tx = targetRect.left + targetRect.width / 2 - boardRect.left
+      const tx = targetRect.left - boardRect.left
       const ty = targetRect.top + targetRect.height / 2 - boardRect.top
 
       // Cubic bezier with horizontal-aware control points
@@ -222,8 +222,11 @@ export function KanbanBoard({ projectId, projectPath, connectionId, isPinnedMode
           <>
             {/* Dark overlay */}
             <div className="fixed inset-0 bg-black/40 z-30 pointer-events-none" />
-            {/* Floating instruction bar */}
-            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-card border border-border rounded-lg shadow-lg px-4 py-2 flex items-center gap-3">
+            {/* Floating instruction bar — no-drag overrides Electron header drag region */}
+            <div
+              className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-card border border-border rounded-lg shadow-lg px-4 py-2 flex items-center gap-3"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
               <span className="text-sm">
                 Selecting dependencies for: <strong>{sourceTicketTitle}</strong> — click tickets to toggle
               </span>

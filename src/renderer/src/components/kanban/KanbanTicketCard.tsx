@@ -134,6 +134,16 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
     useCallback((state) => state.simpleModeByProject[ticket.project_id] ?? false, [ticket.project_id])
   )
 
+  // True when another blocked ticket is hovered and THIS ticket is one of its blockers
+  const isHighlightedAsBlocker = useKanbanStore(
+    useCallback((state) => {
+      const hoveredId = state.hoveredBlockedTicketId
+      if (!hoveredId) return false
+      const blockers = state.dependencyMap.get(hoveredId)
+      return blockers?.has(ticket.id) ?? false
+    }, [ticket.id])
+  )
+
   const isBlocked = !isSimpleMode && unresolvedBlockerCount > 0
 
   // ── Lookup worktree name ────────────────────────────────────────
@@ -582,9 +592,11 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
                   isDragging && 'invisible',
                   isArchived && 'opacity-50 cursor-default',
                   isBlocked && 'opacity-60',
-                  borderState === 'default' && 'border-border/60',
-                  borderState === 'blue' && 'border-blue-500/60',
-                  borderState === 'violet' && 'border-violet-500/60',
+                  // Highlighted as a blocker of the currently hovered ticket
+                  isHighlightedAsBlocker && 'border-dashed !border-amber-500/70 ring-1 ring-amber-500/30',
+                  !isHighlightedAsBlocker && borderState === 'default' && 'border-border/60',
+                  !isHighlightedAsBlocker && borderState === 'blue' && 'border-blue-500/60',
+                  !isHighlightedAsBlocker && borderState === 'violet' && 'border-violet-500/60',
                   // Left accent stripe for marks
                   ticket.mark === 'common' && 'border-l-4 !border-l-green-500',
                   ticket.mark === 'rare' && 'border-l-4 !border-l-blue-500',
