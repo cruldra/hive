@@ -180,17 +180,27 @@ export function KanbanBoard({ projectId, projectPath, connectionId, isPinnedMode
       const targetCx = targetRect.left + targetRect.width / 2 - boardRect.left
       const ty = targetRect.top + targetRect.height / 2 - boardRect.top
 
-      // Use the closest side: if target is to the right, exit from source's right → target's left
-      const sx = targetCx > sourceCx
-        ? sourceRect.right - boardRect.left
-        : sourceRect.left - boardRect.left
-      const tx = targetCx > sourceCx
-        ? targetRect.left - boardRect.left
-        : targetRect.right - boardRect.left
+      let sx: number, tx: number, d: string
 
-      // Cubic bezier with horizontal-aware control points
-      const cx = (sx + tx) / 2
-      const d = `M ${sx},${sy} C ${cx},${sy} ${cx},${ty} ${tx},${ty}`
+      if (Math.abs(sourceCx - targetCx) < 50) {
+        // Same-column case: both endpoints exit from the left edge, arc leftward
+        sx = sourceRect.left - boardRect.left
+        tx = targetRect.left - boardRect.left
+        const offset = Math.max(40, Math.abs(ty - sy) * 0.4)
+        d = `M ${sx},${sy} C ${sx - offset},${sy} ${tx - offset},${ty} ${tx},${ty}`
+      } else {
+        // Use the closest side: if target is to the right, exit from source's right → target's left
+        sx = targetCx > sourceCx
+          ? sourceRect.right - boardRect.left
+          : sourceRect.left - boardRect.left
+        tx = targetCx > sourceCx
+          ? targetRect.left - boardRect.left
+          : targetRect.right - boardRect.left
+
+        // Cubic bezier with horizontal-aware control points
+        const cx = (sx + tx) / 2
+        d = `M ${sx},${sy} C ${cx},${sy} ${cx},${ty} ${tx},${ty}`
+      }
 
       paths.push({ key: `${activeTicketId}-${blockerId}`, d })
     }
