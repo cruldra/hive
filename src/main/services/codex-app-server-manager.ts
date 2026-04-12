@@ -26,6 +26,9 @@ import type { CommandExecutionRequestApprovalParams } from '@shared/codex-schema
 import type { FileChangeRequestApprovalParams } from '@shared/codex-schemas/v2/FileChangeRequestApprovalParams'
 import type { ToolRequestUserInputParams } from '@shared/codex-schemas/v2/ToolRequestUserInputParams'
 import type { ToolRequestUserInputAnswer } from '@shared/codex-schemas/v2/ToolRequestUserInputAnswer'
+import type { ServerNotification } from '@shared/codex-schemas/ServerNotification'
+import type { ServerRequest } from '@shared/codex-schemas/ServerRequest'
+import type { ThreadResumeParams } from '@shared/codex-schemas/v2/ThreadResumeParams'
 
 const log = createLogger({ component: 'CodexAppServerManager' })
 
@@ -285,7 +288,7 @@ export function isRecoverableThreadResumeError(error: unknown): boolean {
 
 // ── Type guards ───────────────────────────────────────────────────
 
-export function isServerRequest(value: unknown): value is JsonRpcRequest {
+export function isServerRequest(value: unknown): value is ServerRequest {
   if (!value || typeof value !== 'object') {
     return false
   }
@@ -297,7 +300,7 @@ export function isServerRequest(value: unknown): value is JsonRpcRequest {
   )
 }
 
-export function isServerNotification(value: unknown): value is JsonRpcNotification {
+export function isServerNotification(value: unknown): value is ServerNotification {
   if (!value || typeof value !== 'object') {
     return false
   }
@@ -458,11 +461,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       let threadOpenResponse: unknown
       if (options.resumeThreadId) {
         try {
-          threadOpenResponse = await this.sendRequest(context, 'thread/resume', {
+          const resumeParams: Omit<ThreadResumeParams, 'serviceTier'> & { serviceTier?: string | null } = {
             ...threadStartParams,
             threadId: options.resumeThreadId,
             persistExtendedHistory: false
-          })
+          }
+          threadOpenResponse = await this.sendRequest(context, 'thread/resume', resumeParams)
         } catch (error) {
           if (!isRecoverableThreadResumeError(error)) {
             throw error
@@ -963,12 +967,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private handleServerNotification(
     context: CodexSessionContext,
-    notification: JsonRpcNotification
+    notification: ServerNotification
   ): void {
     // DEBUG: Log all server notifications to discover title events
     if (
       notification.method !== 'item/agentMessage/delta' &&
-      notification.method !== 'item/agentReasoning/delta'
+      notification.method !== 'item/reasoning/textDelta'
     ) {
       log.info('DEBUG handleServerNotification: received', {
         method: notification.method,
@@ -1002,8 +1006,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     // Handle session lifecycle notifications
     if (notification.method === 'turn/started') {
-      const params = notification.params as TurnStartedNotification
-      const turnId = params.turn.id
+      const turnId = notification.params.turn.id
       this.updateSession(context, {
         status: 'running',
         activeTurnId: turnId ?? null
@@ -1012,8 +1015,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (notification.method === 'turn/completed') {
-      const params = notification.params as TurnCompletedNotification
-      const status = params.turn.status
+      const status = notification.params.turn.status
       this.updateSession(context, {
         status: status === 'failed' ? 'error' : 'ready',
         activeTurnId: null
@@ -1022,7 +1024,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
+  private handleServerRequest(context: CodexSessionContext, request: ServerRequest): void {
     const requestId = randomUUID()
 
     // Track approval requests
