@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { renderHook, act } from '@testing-library/react'
 import { cleanup } from '@testing-library/react'
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ const mockDb = {
     getByProject: vi.fn(),
     getActiveByWorktree: vi.fn().mockResolvedValue([]),
     update: vi.fn().mockResolvedValue({}),
+    setPinnedToBoard: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn(),
     search: vi.fn()
   },
@@ -194,7 +196,7 @@ describe('Session 4: Code Review', () => {
     test('each prompt type produces a non-empty string', async () => {
       const { REVIEW_PROMPTS } = await import('../../../src/renderer/src/constants/reviewPrompts')
 
-      for (const [type, content] of Object.entries(REVIEW_PROMPTS)) {
+      for (const [, content] of Object.entries(REVIEW_PROMPTS)) {
         expect(content).toBeTruthy()
         expect(typeof content).toBe('string')
         expect(content.length).toBeGreaterThan(100)
@@ -291,6 +293,155 @@ describe('Session 4: Code Review', () => {
       const targetBranch = 'origin/main'
       const sessionName = `Code Review — ${branchName} vs ${targetBranch}`
       expect(sessionName).toBe('Code Review — unknown vs origin/main')
+    })
+
+    test('focuses the new review tab when not currently on the board', async () => {
+      const [{ usePinAndActivateSession }, { useSessionStore }, { useKanbanStore }, { useSettingsStore }, { useFileViewerStore }] = await Promise.all([
+        import('../../../src/renderer/src/hooks/usePinAndActivateSession'),
+        import('../../../src/renderer/src/stores/useSessionStore'),
+        import('../../../src/renderer/src/stores/useKanbanStore'),
+        import('../../../src/renderer/src/stores/useSettingsStore'),
+        import('../../../src/renderer/src/stores/useFileViewerStore')
+      ])
+
+      act(() => {
+        useSettingsStore.setState({ boardMode: 'toggle' })
+        useKanbanStore.setState({ isBoardViewActive: false })
+        useFileViewerStore.setState({
+          openFiles: new Map(),
+          activeFilePath: null,
+          activeDiff: null,
+          contextEditorWorktreeId: null
+        })
+        useSessionStore.setState({
+          activeSessionId: 'session-0',
+          activeWorktreeId: 'wt-1',
+          activePinnedSessionId: null,
+          inlineConnectionSessionId: null,
+          pinnedSessionIds: new Set()
+        })
+      })
+
+      const { result } = renderHook(() => usePinAndActivateSession())
+
+      await act(async () => {
+        await result.current.pinAndActivate(async () => 'review-session-1')
+      })
+
+      expect(mockDb.session.setPinnedToBoard).toHaveBeenCalledWith('review-session-1', true)
+      expect(useSessionStore.getState().pinnedSessionIds.has('review-session-1')).toBe(true)
+      expect(useSessionStore.getState().activeSessionId).toBe('review-session-1')
+    })
+
+    test('keeps focus on toggle board when the board is visible', async () => {
+      const [{ usePinAndActivateSession }, { useSessionStore }, { useKanbanStore }, { useSettingsStore }, { useFileViewerStore }] = await Promise.all([
+        import('../../../src/renderer/src/hooks/usePinAndActivateSession'),
+        import('../../../src/renderer/src/stores/useSessionStore'),
+        import('../../../src/renderer/src/stores/useKanbanStore'),
+        import('../../../src/renderer/src/stores/useSettingsStore'),
+        import('../../../src/renderer/src/stores/useFileViewerStore')
+      ])
+
+      act(() => {
+        useSettingsStore.setState({ boardMode: 'toggle' })
+        useKanbanStore.setState({ isBoardViewActive: true })
+        useFileViewerStore.setState({
+          openFiles: new Map(),
+          activeFilePath: null,
+          activeDiff: null,
+          contextEditorWorktreeId: null
+        })
+        useSessionStore.setState({
+          activeSessionId: 'session-0',
+          activeWorktreeId: 'wt-1',
+          activePinnedSessionId: null,
+          inlineConnectionSessionId: null,
+          pinnedSessionIds: new Set()
+        })
+      })
+
+      const { result } = renderHook(() => usePinAndActivateSession())
+
+      await act(async () => {
+        await result.current.pinAndActivate(async () => 'review-session-2')
+      })
+
+      expect(useSessionStore.getState().pinnedSessionIds.has('review-session-2')).toBe(true)
+      expect(useSessionStore.getState().activeSessionId).toBe('session-0')
+    })
+
+    test('keeps focus on sticky board when the board tab is visible', async () => {
+      const [{ usePinAndActivateSession }, { useSessionStore, BOARD_TAB_ID }, { useKanbanStore }, { useSettingsStore }, { useFileViewerStore }] = await Promise.all([
+        import('../../../src/renderer/src/hooks/usePinAndActivateSession'),
+        import('../../../src/renderer/src/stores/useSessionStore'),
+        import('../../../src/renderer/src/stores/useKanbanStore'),
+        import('../../../src/renderer/src/stores/useSettingsStore'),
+        import('../../../src/renderer/src/stores/useFileViewerStore')
+      ])
+
+      act(() => {
+        useSettingsStore.setState({ boardMode: 'sticky-tab' })
+        useKanbanStore.setState({ isBoardViewActive: false })
+        useFileViewerStore.setState({
+          openFiles: new Map(),
+          activeFilePath: null,
+          activeDiff: null,
+          contextEditorWorktreeId: null
+        })
+        useSessionStore.setState({
+          activeSessionId: BOARD_TAB_ID,
+          activeWorktreeId: 'wt-1',
+          activePinnedSessionId: null,
+          inlineConnectionSessionId: null,
+          pinnedSessionIds: new Set()
+        })
+      })
+
+      const { result } = renderHook(() => usePinAndActivateSession())
+
+      await act(async () => {
+        await result.current.pinAndActivate(async () => 'review-session-3')
+      })
+
+      expect(useSessionStore.getState().pinnedSessionIds.has('review-session-3')).toBe(true)
+      expect(useSessionStore.getState().activeSessionId).toBe(BOARD_TAB_ID)
+    })
+
+    test('focuses the new review tab when board mode is active but an overlay is covering it', async () => {
+      const [{ usePinAndActivateSession }, { useSessionStore }, { useKanbanStore }, { useSettingsStore }, { useFileViewerStore }] = await Promise.all([
+        import('../../../src/renderer/src/hooks/usePinAndActivateSession'),
+        import('../../../src/renderer/src/stores/useSessionStore'),
+        import('../../../src/renderer/src/stores/useKanbanStore'),
+        import('../../../src/renderer/src/stores/useSettingsStore'),
+        import('../../../src/renderer/src/stores/useFileViewerStore')
+      ])
+
+      act(() => {
+        useSettingsStore.setState({ boardMode: 'toggle' })
+        useKanbanStore.setState({ isBoardViewActive: true })
+        useFileViewerStore.setState({
+          openFiles: new Map(),
+          activeFilePath: '/tmp/file.ts',
+          activeDiff: null,
+          contextEditorWorktreeId: null
+        })
+        useSessionStore.setState({
+          activeSessionId: 'session-0',
+          activeWorktreeId: 'wt-1',
+          activePinnedSessionId: null,
+          inlineConnectionSessionId: null,
+          pinnedSessionIds: new Set()
+        })
+      })
+
+      const { result } = renderHook(() => usePinAndActivateSession())
+
+      await act(async () => {
+        await result.current.pinAndActivate(async () => 'review-session-4')
+      })
+
+      expect(useSessionStore.getState().pinnedSessionIds.has('review-session-4')).toBe(true)
+      expect(useSessionStore.getState().activeSessionId).toBe('review-session-4')
     })
   })
 
