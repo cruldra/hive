@@ -1862,6 +1862,11 @@ const perfDiagnosticsOps = {
   getSnapshot: () => ipcRenderer.invoke('perf-diagnostics:snapshot')
 }
 
+const codexDebugLoggerOps = {
+  configure: (enabled: boolean, resetPerSession: boolean) =>
+    ipcRenderer.invoke('codex-debug-logger:configure', enabled, resetPerSession)
+}
+
 const analyticsOps = {
   track: (event: string, properties?: Record<string, unknown>) =>
     ipcRenderer.invoke('telemetry:track', event, properties),
@@ -2038,6 +2043,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageOps', usageOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
     contextBridge.exposeInMainWorld('perfDiagnosticsOps', perfDiagnosticsOps)
+    contextBridge.exposeInMainWorld('codexDebugLoggerOps', codexDebugLoggerOps)
     contextBridge.exposeInMainWorld('kanban', kanban)
     contextBridge.exposeInMainWorld('ticketImport', ticketImport)
   } catch (error) {
@@ -2078,6 +2084,8 @@ if (process.contextIsolated) {
   window.analyticsOps = analyticsOps
   // @ts-expect-error (define in dts)
   window.perfDiagnosticsOps = perfDiagnosticsOps
+  // @ts-expect-error (define in dts)
+  window.codexDebugLoggerOps = codexDebugLoggerOps
   // @ts-expect-error (define in dts)
   window.kanban = kanban
   // @ts-expect-error (define in dts)

@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import readline from 'node:readline'
 
 import { createLogger } from './logger'
-import { logCodexMessage, logCodexLifecycleEvent } from './codex-debug-logger'
+import { logCodexMessage, logCodexLifecycleEvent, resetSession } from './codex-debug-logger'
 import { asObject, asString, toJsonSnapshot } from './codex-utils'
 import { CODEX_DEFAULT_MODEL } from './codex-models'
 import { getDatabase } from '../db'
@@ -403,6 +403,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: process.platform === 'win32'
       })
+      resetSession() // Truncate codex.jsonl if reset-per-session is enabled
       const output = readline.createInterface({ input: child.stdout! })
 
       // Generate a temporary thread ID for session tracking

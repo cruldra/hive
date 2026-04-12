@@ -6,6 +6,8 @@ const LOG_FILE_NAME = 'codex.jsonl'
 
 let logFilePath: string | null = null
 let initialized = false
+let enabled = false
+let resetPerSession = true
 
 function getLogFilePath(): string {
   if (!logFilePath) {
@@ -21,10 +23,22 @@ function getLogFilePath(): string {
 function ensureInitialized(): void {
   if (initialized) return
   initialized = true
-  writeFileSync(getLogFilePath(), '') // truncate on first write per process
+  getLogFilePath() // ensure directory exists
+}
+
+export function configure(opts: { enabled: boolean; resetPerSession: boolean }): void {
+  enabled = opts.enabled
+  resetPerSession = opts.resetPerSession
+}
+
+export function resetSession(): void {
+  if (!enabled || !resetPerSession) return
+  writeFileSync(getLogFilePath(), '')
+  initialized = false
 }
 
 export function logCodexMessage(direction: 'outgoing' | 'incoming', rawData: unknown): void {
+  if (!enabled) return
   ensureInitialized()
   const entry = {
     ts: new Date().toISOString(),
@@ -35,6 +49,7 @@ export function logCodexMessage(direction: 'outgoing' | 'incoming', rawData: unk
 }
 
 export function logCodexLifecycleEvent(event: string, detail?: Record<string, unknown>): void {
+  if (!enabled) return
   ensureInitialized()
   const entry = {
     ts: new Date().toISOString(),

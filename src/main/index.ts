@@ -46,6 +46,7 @@ import { setClaudeBinaryPath as setRouterClaudeBinaryPath } from './services/tex
 import type { AgentSdkImplementer } from './services/agent-sdk-types'
 import { telemetryService } from './services/telemetry-service'
 import { perfDiagnostics } from './services/perf-diagnostics'
+import { configure as configureCodexDebugLogger } from './services/codex-debug-logger'
 import { ptyService } from './services/pty-service'
 import { scriptRunner } from './services/script-runner'
 import { registerTicketImportHandlers } from './ipc/ticket-import-handlers'
@@ -478,6 +479,11 @@ app.whenReady().then(async () => {
     return perfDiagnostics.getSnapshot()
   })
 
+  // Codex debug logger IPC
+  ipcMain.handle('codex-debug-logger:configure', (_event, enabled: boolean, resetPerSession: boolean) => {
+    configureCodexDebugLogger({ enabled, resetPerSession })
+  })
+
   // Register response logging handlers only when --log is active
   if (isLogMode) {
     log.info('Registering response logging handlers')
@@ -589,6 +595,26 @@ app.whenReady().then(async () => {
         if (settings.perfDiagnosticsEnabled) {
           log.info('Auto-starting performance diagnostics (setting enabled)')
           perfDiagnostics.start()
+        }
+      }
+    } catch {
+      // ignore — setting may not exist yet
+    }
+
+    // Auto-enable codex JSONL logging if setting is enabled
+    try {
+      const raw = getDatabase().getSetting(APP_SETTINGS_DB_KEY)
+      if (raw) {
+        const settings = JSON.parse(raw) as {
+          codexJsonlLoggingEnabled?: boolean
+          codexJsonlResetPerSession?: boolean
+        }
+        if (settings.codexJsonlLoggingEnabled) {
+          log.info('Auto-enabling codex JSONL logging (setting enabled)')
+          configureCodexDebugLogger({
+            enabled: true,
+            resetPerSession: settings.codexJsonlResetPerSession ?? true
+          })
         }
       }
     } catch {
