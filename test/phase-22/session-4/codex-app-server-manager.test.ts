@@ -571,6 +571,169 @@ describe('CodexAppServerManager', () => {
       expect(context.session.status).toBe('error')
     })
 
+    // ── Session 4: Typed notification params ──────────────────────
+
+    it('handles turn/started with full TurnStartedNotification shape', () => {
+      const { context } = createTestContext({ status: 'ready' })
+
+      // Full TurnStartedNotification shape: { threadId, turn: Turn }
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'turn/started',
+          params: {
+            threadId: 'thread-123',
+            turn: {
+              id: 'turn-typed-1',
+              items: [],
+              status: 'inProgress',
+              error: null,
+              startedAt: 1712000000,
+              completedAt: null,
+              durationMs: null
+            }
+          }
+        })
+      )
+
+      expect(context.session.status).toBe('running')
+      expect(context.session.activeTurnId).toBe('turn-typed-1')
+    })
+
+    it('handles turn/completed with full TurnCompletedNotification shape', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-typed-2' })
+
+      // Full TurnCompletedNotification shape: { threadId, turn: Turn }
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-123',
+            turn: {
+              id: 'turn-typed-2',
+              items: [],
+              status: 'completed',
+              error: null,
+              startedAt: 1712000000,
+              completedAt: 1712000060,
+              durationMs: 60000
+            }
+          }
+        })
+      )
+
+      expect(context.session.status).toBe('ready')
+      expect(context.session.activeTurnId).toBeNull()
+    })
+
+    it('handles turn/completed with failed status and error in full Turn shape', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-typed-3' })
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-123',
+            turn: {
+              id: 'turn-typed-3',
+              items: [],
+              status: 'failed',
+              error: { code: 'model_error', message: 'Something went wrong' },
+              startedAt: 1712000000,
+              completedAt: 1712000010,
+              durationMs: 10000
+            }
+          }
+        })
+      )
+
+      expect(context.session.status).toBe('error')
+      expect(context.session.activeTurnId).toBeNull()
+    })
+
+    // ── Session 4: Typed request params ─────────────────────────
+
+    it('tracks approval with typed CommandExecutionRequestApprovalParams', () => {
+      const { context } = createTestContext()
+
+      // Full CommandExecutionRequestApprovalParams shape
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          id: 200,
+          method: 'item/commandExecution/requestApproval',
+          params: {
+            threadId: 'thread-123',
+            turnId: 'turn-exec-1',
+            itemId: 'item-exec-1',
+            command: 'npm install',
+            cwd: '/test/project',
+            commandActions: null,
+            availableDecisions: ['accept', 'acceptForSession', 'decline']
+          }
+        })
+      )
+
+      expect(context.pendingApprovals.size).toBe(1)
+      const approval = [...context.pendingApprovals.values()][0]
+      expect(approval.jsonRpcId).toBe(200)
+      expect(approval.method).toBe('item/commandExecution/requestApproval')
+      expect(approval.turnId).toBe('turn-exec-1')
+      expect(approval.itemId).toBe('item-exec-1')
+    })
+
+    it('tracks approval with typed FileChangeRequestApprovalParams', () => {
+      const { context } = createTestContext()
+
+      // Full FileChangeRequestApprovalParams shape
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          id: 201,
+          method: 'item/fileChange/requestApproval',
+          params: {
+            threadId: 'thread-123',
+            turnId: 'turn-fc-1',
+            itemId: 'item-fc-1',
+            reason: 'Write access to /etc/config'
+          }
+        })
+      )
+
+      expect(context.pendingApprovals.size).toBe(1)
+      const approval = [...context.pendingApprovals.values()][0]
+      expect(approval.turnId).toBe('turn-fc-1')
+      expect(approval.itemId).toBe('item-fc-1')
+    })
+
+    it('tracks user input with typed ToolRequestUserInputParams', () => {
+      const { context } = createTestContext()
+
+      // Full ToolRequestUserInputParams shape
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          id: 202,
+          method: 'item/tool/requestUserInput',
+          params: {
+            threadId: 'thread-123',
+            turnId: 'turn-ui-1',
+            itemId: 'item-ui-1',
+            questions: [
+              { id: 'q1', question: 'What is the API key?' }
+            ]
+          }
+        })
+      )
+
+      expect(context.pendingUserInputs.size).toBe(1)
+      const input = [...context.pendingUserInputs.values()][0]
+      expect(input.turnId).toBe('turn-ui-1')
+      expect(input.itemId).toBe('item-ui-1')
+    })
+
     it('extracts route fields from notification params', () => {
       const { context } = createTestContext()
       const events: any[] = []
@@ -820,6 +983,105 @@ describe('CodexAppServerManager', () => {
       killChildTree(child)
 
       expect(child.kill).toHaveBeenCalled()
+    })
+  })
+
+  // ── Session 4: respondToUserInput with ToolRequestUserInputAnswer ──
+
+  describe('respondToUserInput', () => {
+    it('sends answers in ToolRequestUserInputAnswer format { answers: string[] }', () => {
+      const { context, child } = createTestContext()
+      const writeSpy = vi.spyOn(child.stdin, 'write')
+
+      // Register session in manager
+      const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+      sessionsMap.set('thread-123', context)
+
+      // Simulate a pending user input request
+      context.pendingUserInputs.set('req-ui-1', {
+        requestId: 'req-ui-1',
+        jsonRpcId: 42,
+        threadId: 'thread-123',
+        turnId: 'turn-1',
+        itemId: 'item-1'
+      })
+
+      manager.respondToUserInput('thread-123', 'req-ui-1', [
+        { id: 'q1', answer: 'my-api-key' },
+        { id: 'q2', answer: 'us-east-1' }
+      ])
+
+      expect(writeSpy).toHaveBeenCalled()
+      const written = JSON.parse((writeSpy.mock.calls[0][0] as string).trim())
+
+      // Verify the format matches ToolRequestUserInputAnswer: { answers: string[] }
+      expect(written.id).toBe(42)
+      expect(written.result.answers).toEqual({
+        q1: { answers: ['my-api-key'] },
+        q2: { answers: ['us-east-1'] }
+      })
+    })
+
+    it('removes pending user input after responding', () => {
+      const { context } = createTestContext()
+
+      const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+      sessionsMap.set('thread-123', context)
+
+      context.pendingUserInputs.set('req-ui-2', {
+        requestId: 'req-ui-2',
+        jsonRpcId: 43,
+        threadId: 'thread-123'
+      })
+
+      manager.respondToUserInput('thread-123', 'req-ui-2', [
+        { id: 'q1', answer: 'yes' }
+      ])
+
+      expect(context.pendingUserInputs.size).toBe(0)
+    })
+
+    it('emits answered event with answer payload', () => {
+      const { context } = createTestContext()
+      const events: any[] = []
+      manager.on('event', (event) => events.push(event))
+
+      const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+      sessionsMap.set('thread-123', context)
+
+      context.pendingUserInputs.set('req-ui-3', {
+        requestId: 'req-ui-3',
+        jsonRpcId: 44,
+        threadId: 'thread-123'
+      })
+
+      manager.respondToUserInput('thread-123', 'req-ui-3', [
+        { id: 'q1', answer: 'answer-val' }
+      ])
+
+      const answered = events.find((e: any) => e.method === 'item/tool/requestUserInput/answered')
+      expect(answered).toBeDefined()
+      expect(answered.requestId).toBe('req-ui-3')
+      expect(answered.payload.answers).toEqual({
+        q1: { answers: ['answer-val'] }
+      })
+    })
+
+    it('throws for unknown threadId', () => {
+      expect(() => {
+        manager.respondToUserInput('nonexistent', 'req-1', [{ id: 'q1', answer: 'x' }])
+      }).toThrow('no session for threadId=nonexistent')
+    })
+
+    it('throws for unknown requestId', () => {
+      const { context } = createTestContext()
+
+      const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+      sessionsMap.set('thread-123', context)
+
+      expect(() => {
+        manager.respondToUserInput('thread-123', 'req-missing', [{ id: 'q1', answer: 'x' }])
+      }).toThrow('no pending user input for requestId=req-missing')
     })
   })
 

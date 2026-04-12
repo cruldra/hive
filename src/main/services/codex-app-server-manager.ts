@@ -4,10 +4,31 @@ import { EventEmitter } from 'node:events'
 import readline from 'node:readline'
 
 import { createLogger } from './logger'
+import { logCodexMessage, logCodexLifecycleEvent } from './codex-debug-logger'
 import { asObject, asString, toJsonSnapshot } from './codex-utils'
 import { CODEX_DEFAULT_MODEL } from './codex-models'
 import { getDatabase } from '../db'
 import { getUserEnvironmentVariables } from './env-vars'
+import type { CommandExecutionApprovalDecision } from '@shared/codex-schemas/v2/CommandExecutionApprovalDecision'
+import type { FileChangeApprovalDecision } from '@shared/codex-schemas/v2/FileChangeApprovalDecision'
+import type { ThreadStartParams } from '@shared/codex-schemas/v2/ThreadStartParams'
+import type { ThreadStartResponse } from '@shared/codex-schemas/v2/ThreadStartResponse'
+import type { ThreadResumeResponse } from '@shared/codex-schemas/v2/ThreadResumeResponse'
+import type { TurnStartResponse } from '@shared/codex-schemas/v2/TurnStartResponse'
+import type { TurnInterruptParams } from '@shared/codex-schemas/v2/TurnInterruptParams'
+import type { ThreadReadParams } from '@shared/codex-schemas/v2/ThreadReadParams'
+import type { ThreadRollbackParams } from '@shared/codex-schemas/v2/ThreadRollbackParams'
+import type { SandboxMode } from '@shared/codex-schemas/v2/SandboxMode'
+import type { AskForApproval } from '@shared/codex-schemas/v2/AskForApproval'
+import type { TurnStartedNotification } from '@shared/codex-schemas/v2/TurnStartedNotification'
+import type { TurnCompletedNotification } from '@shared/codex-schemas/v2/TurnCompletedNotification'
+import type { CommandExecutionRequestApprovalParams } from '@shared/codex-schemas/v2/CommandExecutionRequestApprovalParams'
+import type { FileChangeRequestApprovalParams } from '@shared/codex-schemas/v2/FileChangeRequestApprovalParams'
+import type { ToolRequestUserInputParams } from '@shared/codex-schemas/v2/ToolRequestUserInputParams'
+import type { ToolRequestUserInputAnswer } from '@shared/codex-schemas/v2/ToolRequestUserInputAnswer'
+import type { ServerNotification } from '@shared/codex-schemas/ServerNotification'
+import type { ServerRequest } from '@shared/codex-schemas/ServerRequest'
+import type { ThreadResumeParams } from '@shared/codex-schemas/v2/ThreadResumeParams'
 
 const log = createLogger({ component: 'CodexAppServerManager' })
 
@@ -159,8 +180,8 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
 ]
 
 function getDefaultCodexRuntimeConfig(): {
-  approvalPolicy: 'never'
-  sandbox: 'danger-full-access'
+  approvalPolicy: AskForApproval
+  sandbox: SandboxMode
 } {
   return {
     approvalPolicy: 'never',
@@ -267,7 +288,7 @@ export function isRecoverableThreadResumeError(error: unknown): boolean {
 
 // ── Type guards ───────────────────────────────────────────────────
 
-export function isServerRequest(value: unknown): value is JsonRpcRequest {
+export function isServerRequest(value: unknown): value is ServerRequest {
   if (!value || typeof value !== 'object') {
     return false
   }
@@ -279,7 +300,7 @@ export function isServerRequest(value: unknown): value is JsonRpcRequest {
   )
 }
 
-export function isServerNotification(value: unknown): value is JsonRpcNotification {
+export function isServerNotification(value: unknown): value is ServerNotification {
   if (!value || typeof value !== 'object') {
     return false
   }
@@ -314,13 +335,36 @@ export function killChildTree(child: ChildProcess): void {
 }
 
 // ── User input answer format ──────────────────────────────────────
+// Uses generated ToolRequestUserInputAnswer from codex-schemas
 
-export interface CodexUserInputAnswer {
-  answers: string[]
+// ── Approval decision mapping ────────────────────────────────────
+
+export type HiveApprovalDecision = 'once' | 'always' | 'reject'
+
+function toCodexCommandApprovalDecision(
+  decision: HiveApprovalDecision
+): CommandExecutionApprovalDecision {
+  switch (decision) {
+    case 'once':
+      return 'accept'
+    case 'always':
+      return 'acceptForSession'
+    case 'reject':
+      return 'decline'
+  }
 }
 
-export function toCodexUserInputAnswer(value: string): CodexUserInputAnswer {
-  return { answers: [value] }
+function toCodexFileChangeApprovalDecision(
+  decision: HiveApprovalDecision
+): FileChangeApprovalDecision {
+  switch (decision) {
+    case 'once':
+      return 'accept'
+    case 'always':
+      return 'acceptForSession'
+    case 'reject':
+      return 'decline'
+  }
 }
 
 // ── Manager class ─────────────────────────────────────────────────
@@ -406,19 +450,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       // Open thread: resume or start fresh
-      const threadStartParams = {
+      const threadStartParams: Omit<ThreadStartParams, 'serviceTier'> & { serviceTier?: string | null } = {
         model: options.model ?? null,
         cwd: resolvedCwd,
+        experimentalRawEvents: false,
+        persistExtendedHistory: false,
         ...getDefaultCodexRuntimeConfig()
       }
 
       let threadOpenResponse: unknown
       if (options.resumeThreadId) {
         try {
-          threadOpenResponse = await this.sendRequest(context, 'thread/resume', {
+          const resumeParams: Omit<ThreadResumeParams, 'serviceTier'> & { serviceTier?: string | null } = {
             ...threadStartParams,
-            threadId: options.resumeThreadId
-          })
+            threadId: options.resumeThreadId,
+            persistExtendedHistory: false
+          }
+          threadOpenResponse = await this.sendRequest(context, 'thread/resume', resumeParams)
         } catch (error) {
           if (!isRecoverableThreadResumeError(error)) {
             throw error
@@ -442,9 +490,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       // Extract thread ID from response
-      const responseRecord = asObject(threadOpenResponse)
-      const threadObj = asObject(responseRecord?.thread)
-      const providerThreadId = asString(threadObj?.id) ?? asString(responseRecord?.threadId)
+      const responseRecord = threadOpenResponse as ThreadStartResponse | ThreadResumeResponse
+      const providerThreadId = responseRecord.thread.id
 
       if (!providerThreadId) {
         throw new Error('Thread start/resume response did not include a thread id.')
@@ -560,7 +607,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       input.input && input.input.length > 0
         ? input.input
         : input.text
-          ? [{ type: 'text', text: input.text }]
+          ? [{ type: 'text' as const, text: input.text, text_elements: [] }]
           : []
 
     const params: Record<string, unknown> = {
@@ -573,7 +620,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (input.reasoningEffort) {
-      params.settings = { reasoningEffort: input.reasoningEffort }
+      params.effort = input.reasoningEffort
     }
 
     if (input.serviceTier !== undefined) {
@@ -602,23 +649,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.updateSession(context, { status: 'running' })
     this.emitLifecycleEvent(context, 'turn/sending', 'Sending turn')
 
-    const response = await this.sendRequest<Record<string, unknown>>(context, 'turn/start', params)
-
-    const responseObj = asObject(response)
-    const turnObj = asObject(responseObj?.turn)
-    const turnId = asString(turnObj?.id) ?? asString(responseObj?.turnId) ?? ''
-    const resumeCursor = asString(responseObj?.resumeCursor)
+    const response = await this.sendRequest<TurnStartResponse>(context, 'turn/start', params)
+    const turnId = response.turn.id
 
     // Update active turn
     this.updateSession(context, {
-      activeTurnId: turnId || null,
-      ...(resumeCursor ? { resumeCursor } : {})
+      activeTurnId: turnId || null
     })
 
     return {
       turnId,
-      threadId: context.session.threadId,
-      ...(resumeCursor ? { resumeCursor } : {})
+      threadId: context.session.threadId
     }
   }
 
@@ -627,7 +668,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   respondToApproval(
     threadId: string,
     requestId: string,
-    decision: 'once' | 'always' | 'reject'
+    decision: HiveApprovalDecision
   ): void {
     const context = this.sessions.get(threadId)
     if (!context) {
@@ -639,10 +680,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error(`respondToApproval: no pending approval for requestId=${requestId}`)
     }
 
+    const codexDecision =
+      pending.method === 'item/fileChange/requestApproval'
+        ? toCodexFileChangeApprovalDecision(decision)
+        : toCodexCommandApprovalDecision(decision)
+
     this.writeMessage(context, {
       jsonrpc: '2.0',
       id: pending.jsonRpcId,
-      result: { decision }
+      result: { decision: codexDecision }
     })
 
     context.pendingApprovals.delete(requestId)
@@ -650,7 +696,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.emitLifecycleEvent(
       context,
       'approval/responded',
-      `Approval ${requestId} responded with ${decision}`
+      `Approval ${requestId} responded with ${codexDecision}`
     )
   }
 
@@ -670,10 +716,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     // Convert answers array into a map keyed by question id,
-    // wrapping each value in the Codex { answers: string[] } format
-    const answersMap: Record<string, CodexUserInputAnswer> = {}
+    // wrapping each value in the generated ToolRequestUserInputAnswer format
+    const answersMap: Record<string, ToolRequestUserInputAnswer> = {}
     for (const { id, answer } of answers) {
-      answersMap[id] = toCodexUserInputAnswer(answer)
+      answersMap[id] = { answers: [answer] }
     }
 
     this.writeMessage(context, {
@@ -729,10 +775,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     const targetTurnId = turnId ?? context.session.activeTurnId
 
-    await this.sendRequest(context, 'turn/interrupt', {
-      threadId: context.session.threadId,
-      ...(targetTurnId ? { turnId: targetTurnId } : {})
-    })
+    const params: TurnInterruptParams = {
+      threadId: context.session.threadId!,
+      turnId: targetTurnId ?? ''
+    }
+
+    await this.sendRequest(context, 'turn/interrupt', params)
 
     this.updateSession(context, {
       status: 'ready',
@@ -748,10 +796,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error(`readThread: no session for threadId=${threadId}`)
     }
 
-    return this.sendRequest(context, 'thread/read', {
-      threadId: context.session.threadId,
+    const params: ThreadReadParams = {
+      threadId: context.session.threadId!,
       includeTurns: true
-    })
+    }
+
+    return this.sendRequest(context, 'thread/read', params)
   }
 
   async rollbackThread(threadId: string, numTurns: number): Promise<unknown> {
@@ -764,10 +814,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error('numTurns must be an integer >= 1')
     }
 
-    const response = await this.sendRequest(context, 'thread/rollback', {
-      threadId: context.session.threadId,
+    const params: ThreadRollbackParams = {
+      threadId: context.session.threadId!,
       numTurns
-    })
+    }
+
+    const response = await this.sendRequest(context, 'thread/rollback', params)
 
     this.updateSession(context, { status: 'ready', activeTurnId: null })
     this.emitLifecycleEvent(context, 'thread/rolledBack', `Rolled back ${numTurns} turn(s)`)
@@ -809,6 +861,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           }
 
           log.warn('codex stderr', { message: classified.message })
+          logCodexLifecycleEvent('stderr', { message: classified.message })
           // Emit as a notification rather than an error — stderr output
           // from the Codex app-server often includes benign warnings,
           // progress info, or non-standard log formats that should not
@@ -828,6 +881,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     context.child.on('error', (error) => {
       const message = error.message || 'codex app-server process errored.'
+      logCodexLifecycleEvent('process/error', { message })
       this.updateSession(context, {
         status: 'error',
         error: message
@@ -836,6 +890,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     })
 
     context.child.on('exit', (code, signal) => {
+      logCodexLifecycleEvent('process/exit', { code: code ?? null, signal: signal ?? null })
+
       if (context.stopping) {
         return
       }
@@ -876,6 +932,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return
     }
 
+    logCodexMessage('incoming', parsed)
+
     if (!parsed || typeof parsed !== 'object') {
       this.emitErrorEvent(
         context,
@@ -909,12 +967,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private handleServerNotification(
     context: CodexSessionContext,
-    notification: JsonRpcNotification
+    notification: ServerNotification
   ): void {
     // DEBUG: Log all server notifications to discover title events
     if (
       notification.method !== 'item/agentMessage/delta' &&
-      notification.method !== 'item/agentReasoning/delta'
+      notification.method !== 'item/reasoning/textDelta'
     ) {
       log.info('DEBUG handleServerNotification: received', {
         method: notification.method,
@@ -948,8 +1006,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     // Handle session lifecycle notifications
     if (notification.method === 'turn/started') {
-      const turnObj = asObject(asObject(notification.params)?.turn)
-      const turnId = asString(turnObj?.id)
+      const turnId = notification.params.turn.id
       this.updateSession(context, {
         status: 'running',
         activeTurnId: turnId ?? null
@@ -958,8 +1015,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (notification.method === 'turn/completed') {
-      const turnObj = asObject(asObject(notification.params)?.turn)
-      const status = asString(turnObj?.status)
+      const status = notification.params.turn.status
       this.updateSession(context, {
         status: status === 'failed' ? 'error' : 'ready',
         activeTurnId: null
@@ -968,8 +1024,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
-    const route = this.readRouteFields(request.params)
+  private handleServerRequest(context: CodexSessionContext, request: ServerRequest): void {
     const requestId = randomUUID()
 
     // Track approval requests
@@ -978,27 +1033,35 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       request.method === 'item/fileChange/requestApproval' ||
       request.method === 'item/fileRead/requestApproval'
     ) {
+      const params = request.params as
+        | CommandExecutionRequestApprovalParams
+        | FileChangeRequestApprovalParams
+
       context.pendingApprovals.set(requestId, {
         requestId,
         jsonRpcId: request.id,
         method: request.method,
         threadId: context.session.threadId ?? '',
         payload: request.params,
-        ...(route.turnId ? { turnId: route.turnId } : {}),
-        ...(route.itemId ? { itemId: route.itemId } : {})
+        ...('turnId' in params ? { turnId: params.turnId } : {}),
+        ...('itemId' in params ? { itemId: params.itemId } : {})
       })
     }
 
     // Track user input requests
     if (request.method === 'item/tool/requestUserInput') {
+      const params = request.params as ToolRequestUserInputParams
+
       context.pendingUserInputs.set(requestId, {
         requestId,
         jsonRpcId: request.id,
         threadId: context.session.threadId ?? '',
-        ...(route.turnId ? { turnId: route.turnId } : {}),
-        ...(route.itemId ? { itemId: route.itemId } : {})
+        turnId: params.turnId,
+        itemId: params.itemId
       })
     }
+
+    const route = this.readRouteFields(request.params)
 
     this.emitEvent({
       id: randomUUID(),
@@ -1073,6 +1136,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error('Cannot write to codex app-server stdin.')
     }
 
+    logCodexMessage('outgoing', message)
     context.child.stdin.write(`${encoded}\n`)
   }
 

@@ -18,6 +18,16 @@ import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
 import { normalizeCodexToolName, stripShellPrefix } from '@shared/codex-tool-normalizer'
+import type { UserInput } from '@shared/codex-schemas/v2/UserInput'
+import type { TurnStartParams } from '@shared/codex-schemas/v2/TurnStartParams'
+import type { ThreadNameUpdatedNotification } from '@shared/codex-schemas/v2/ThreadNameUpdatedNotification'
+import type { TurnCompletedNotification } from '@shared/codex-schemas/v2/TurnCompletedNotification'
+import type { TurnStartedNotification } from '@shared/codex-schemas/v2/TurnStartedNotification'
+import type { ToolRequestUserInputParams } from '@shared/codex-schemas/v2/ToolRequestUserInputParams'
+import type { ToolRequestUserInputAnswer } from '@shared/codex-schemas/v2/ToolRequestUserInputAnswer'
+import type { CommandExecutionRequestApprovalParams } from '@shared/codex-schemas/v2/CommandExecutionRequestApprovalParams'
+import type { ThreadItem } from '@shared/codex-schemas/v2/ThreadItem'
+import type { Thread } from '@shared/codex-schemas/v2/Thread'
 
 const log = createLogger({ component: 'CodexImplementer' })
 // Balances write coalescing during rapid streaming against data freshness for crash recovery.
@@ -317,6 +327,10 @@ export class CodexImplementer implements AgentSdkImplementer {
         turnId: event.turnId
       })
 
+      // Typed payload available for known methods
+      const _typedApproval = event.method === 'item/commandExecution/requestApproval'
+        ? event.payload as CommandExecutionRequestApprovalParams
+        : undefined
       const payload = asObject(event.payload)
       this.sendToRenderer('opencode:stream', {
         type: 'permission.asked',
@@ -342,8 +356,8 @@ export class CodexImplementer implements AgentSdkImplementer {
         turnId: event.turnId
       })
 
-      const payload = asObject(event.payload)
-      const questions = (payload?.questions ?? []) as unknown[]
+      const typed = event.payload as ToolRequestUserInputParams | undefined
+      const questions = typed?.questions ?? ((asObject(event.payload)?.questions ?? []) as unknown[])
 
       this.sendToRenderer('opencode:stream', {
         type: 'question.asked',
@@ -363,7 +377,8 @@ export class CodexImplementer implements AgentSdkImplementer {
       payloadKeys: payload ? Object.keys(payload) : [],
       fullPayload: toJsonSnapshot(event.payload, 1000)
     })
-    const title = asString(payload?.threadName)
+    const typed = event.payload as ThreadNameUpdatedNotification | undefined
+    const title = typed?.threadName ?? asString(payload?.threadName)
     if (!title) {
       log.warn(
         'DEBUG handleProviderTitleUpdate: threadName field empty/missing, tried payload?.threadName'
@@ -715,11 +730,11 @@ export class CodexImplementer implements AgentSdkImplementer {
       // Detect turn completion and whether it failed
       if (event.method === 'turn/completed') {
         turnCompleted = true
-        const payload = event.payload as Record<string, unknown> | undefined
-        const turnObj = payload?.turn as Record<string, unknown> | undefined
-        completedTurnId =
-          event.turnId ?? (typeof turnObj?.id === 'string' ? (turnObj.id as string) : undefined)
-        const status = (turnObj?.status as string) ?? (payload?.state as string)
+        const typed = event.payload as TurnCompletedNotification | undefined
+        completedTurnId = event.turnId ?? typed?.turn?.id
+        const status: string | undefined =
+          typed?.turn?.status ??
+          ((event.payload as Record<string, unknown> | undefined)?.state as string | undefined)
         if (status === 'failed') {
           turnFailed = true
         }
@@ -743,10 +758,12 @@ export class CodexImplementer implements AgentSdkImplementer {
         }
       }
 
+      const reasoningEffort = modelOverride?.variant ?? this.selectedVariant
       await this.manager.sendTurn(session.threadId, {
         text,
         model,
         ...(options?.codexFastMode ? { serviceTier: 'fast' } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         interactionMode
       })
 
@@ -1040,8 +1057,8 @@ export class CodexImplementer implements AgentSdkImplementer {
       throw new Error(`No pending question found for requestId: ${requestId}`)
     }
 
-    // Convert string[][] answers to the format Codex expects
-    const codexAnswers = answers.map(([id, answer]) => ({
+    // Mapped to ToolRequestUserInputAnswer ({ answers: [answer] }) by the manager
+    const codexAnswers: Array<{ id: string; answer: string }> = answers.map(([id, answer]) => ({
       id: id ?? requestId,
       answer: answer ?? ''
     }))
@@ -2357,6 +2374,8 @@ export class CodexImplementer implements AgentSdkImplementer {
     const obj = asObject(snapshot)
     if (!obj) return []
 
+    // Typed overlay for generated Thread shape
+    const _typedSnapshot = snapshot as { thread?: Thread } | undefined
     const threadObj = asObject(obj.thread) ?? obj
     const turns = threadObj.turns as unknown[] | undefined
     if (!Array.isArray(turns)) return []
@@ -2408,6 +2427,8 @@ export class CodexImplementer implements AgentSdkImplementer {
         for (const item of items) {
           const itemObj = asObject(item)
           if (!itemObj) continue
+          // Typed reference for ThreadItem discriminated union
+          const _typedItem = item as ThreadItem
 
           const itemType = asString(itemObj.type)
           const itemId = asString(itemObj.id)
