@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useKanbanStore } from './useKanbanStore'
+import { LANGUAGE_MAP } from '@/components/projects/LanguageIcon'
 
 // Project type matching the database schema
 interface Project {
@@ -83,8 +84,13 @@ export const useProjectStore = create<ProjectState>()(
           const projects = await window.db.project.getAll()
           set({ projects, isLoading: false })
 
-          // Backfill favicon detection sequentially to avoid SQLite write contention
-          const unscanned = projects.filter((p) => p.detected_icon === null || p.detected_icon === undefined)
+          // On startup, only scan projects that have no visual icon at all
+          const unscanned = projects.filter((p) => {
+            if (p.custom_icon) return false
+            if (p.detected_icon !== null && p.detected_icon !== undefined) return false
+            if (p.language && LANGUAGE_MAP[p.language]) return false
+            return true
+          })
           if (unscanned.length > 0) {
             ;(async () => {
               for (const project of unscanned) {
