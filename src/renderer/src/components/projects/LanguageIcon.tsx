@@ -43,7 +43,7 @@ const BUNDLED_ICONS: Record<string, string> = {
 }
 
 /** Fallback colored badges for languages without a bundled icon */
-const LANGUAGE_MAP: Record<string, LanguageConfig> = {
+export const LANGUAGE_MAP: Record<string, LanguageConfig> = {
   typescript: { label: 'TS', bg: 'bg-blue-600', text: 'text-white' },
   javascript: { label: 'JS', bg: 'bg-yellow-500', text: 'text-black' },
   python: { label: 'Py', bg: 'bg-sky-600', text: 'text-yellow-300' },
