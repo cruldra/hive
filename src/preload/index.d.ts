@@ -1397,6 +1397,9 @@ declare global {
         eventLoopLagMs: number
       }>
     }
+    codexDebugLoggerOps: {
+      configure: (enabled: boolean, resetPerSession: boolean) => Promise<void>
+    }
     kanban: {
       ticket: {
         create: (data: KanbanTicketCreate) => Promise<KanbanTicket>

@@ -120,6 +120,8 @@ export interface AppSettings {
 
   // Diagnostics
   perfDiagnosticsEnabled: boolean
+  codexJsonlLoggingEnabled: boolean
+  codexJsonlResetPerSession: boolean
 
   // Review
   reviewPromptType: ReviewPromptType
@@ -181,6 +183,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   tipsEnabled: true,
   environmentVariables: [],
   perfDiagnosticsEnabled: false,
+  codexJsonlLoggingEnabled: false,
+  codexJsonlResetPerSession: true,
   reviewPromptType: 'superpowers',
   _boardModeMigratedToStickyTab: false
 }
@@ -314,6 +318,8 @@ function extractSettings(state: SettingsState): AppSettings {
     tipsEnabled: state.tipsEnabled,
     environmentVariables: state.environmentVariables,
     perfDiagnosticsEnabled: state.perfDiagnosticsEnabled,
+    codexJsonlLoggingEnabled: state.codexJsonlLoggingEnabled,
+    codexJsonlResetPerSession: state.codexJsonlResetPerSession,
     reviewPromptType: state.reviewPromptType,
     _boardModeMigratedToStickyTab: state._boardModeMigratedToStickyTab
   }
@@ -569,6 +575,8 @@ export const useSettingsStore = create<SettingsState>()(
         tipsEnabled: state.tipsEnabled,
         environmentVariables: state.environmentVariables,
         perfDiagnosticsEnabled: state.perfDiagnosticsEnabled,
+        codexJsonlLoggingEnabled: state.codexJsonlLoggingEnabled,
+        codexJsonlResetPerSession: state.codexJsonlResetPerSession,
         reviewPromptType: state.reviewPromptType,
         _boardModeMigratedToStickyTab: state._boardModeMigratedToStickyTab
       })

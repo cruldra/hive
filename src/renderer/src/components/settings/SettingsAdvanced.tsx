@@ -21,7 +21,7 @@ export function SettingsAdvanced(): React.JSX.Element {
   const [errors, setErrors] = useState<Record<number, string | null>>({})
 
   // Store access
-  const { environmentVariables: rawEnvVars, perfDiagnosticsEnabled, updateSetting } = useSettingsStore()
+  const { environmentVariables: rawEnvVars, perfDiagnosticsEnabled, codexJsonlLoggingEnabled, codexJsonlResetPerSession, updateSetting } = useSettingsStore()
   const envVars = rawEnvVars ?? []
 
   const handlePerfDiagnosticsToggle = (): void => {
@@ -29,6 +29,20 @@ export function SettingsAdvanced(): React.JSX.Element {
     updateSetting('perfDiagnosticsEnabled', newValue)
     window.perfDiagnosticsOps.enable(newValue)
     toast.success(newValue ? 'Performance diagnostics enabled' : 'Performance diagnostics disabled')
+  }
+
+  const handleCodexJsonlLoggingToggle = (): void => {
+    const newValue = !codexJsonlLoggingEnabled
+    updateSetting('codexJsonlLoggingEnabled', newValue)
+    window.codexDebugLoggerOps.configure(newValue, codexJsonlResetPerSession)
+    toast.success(newValue ? 'Codex JSONL logging enabled' : 'Codex JSONL logging disabled')
+  }
+
+  const handleCodexJsonlResetToggle = (): void => {
+    const newValue = !codexJsonlResetPerSession
+    updateSetting('codexJsonlResetPerSession', newValue)
+    window.codexDebugLoggerOps.configure(codexJsonlLoggingEnabled, newValue)
+    toast.success(newValue ? 'Log will reset each Codex session' : 'Log will append across sessions')
   }
 
   const handleAdd = () => {
@@ -97,6 +111,58 @@ export function SettingsAdvanced(): React.JSX.Element {
             className={cn(
               'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
               perfDiagnosticsEnabled ? 'translate-x-4' : 'translate-x-0'
+            )}
+          />
+        </button>
+      </div>
+
+      {/* Codex JSONL Logging toggle */}
+      <div className="flex items-center justify-between">
+        <div>
+          <label className="text-sm font-medium">Codex JSONL Logging</label>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Log all Codex JSON-RPC messages to ~/.hive/logs/codex.jsonl
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={codexJsonlLoggingEnabled}
+          onClick={handleCodexJsonlLoggingToggle}
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+            codexJsonlLoggingEnabled ? 'bg-primary' : 'bg-muted'
+          )}
+        >
+          <span
+            className={cn(
+              'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+              codexJsonlLoggingEnabled ? 'translate-x-4' : 'translate-x-0'
+            )}
+          />
+        </button>
+      </div>
+
+      {/* Reset log each session sub-toggle */}
+      <div className={cn('flex items-center justify-between pl-4', !codexJsonlLoggingEnabled && 'opacity-50 pointer-events-none')}>
+        <div>
+          <label className="text-sm font-medium">Reset log each session</label>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Truncate the log file when a new Codex session starts. When off, logs append across sessions.
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={codexJsonlResetPerSession}
+          onClick={handleCodexJsonlResetToggle}
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+            codexJsonlResetPerSession ? 'bg-primary' : 'bg-muted'
+          )}
+        >
+          <span
+            className={cn(
+              'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+              codexJsonlResetPerSession ? 'translate-x-4' : 'translate-x-0'
             )}
           />
         </button>
