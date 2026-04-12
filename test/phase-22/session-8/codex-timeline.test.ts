@@ -142,6 +142,77 @@ describe('codex timeline derivation', () => {
     ).toBe(true)
   })
 
+  it('re-normalizes persisted commandExecution activities from Bash to semantic tools', () => {
+    const messages: SessionMessage[] = [
+      {
+        id: 'db-user-1',
+        session_id: 'session-1',
+        role: 'user',
+        content: 'Inspect the file',
+        opencode_message_id: 'turn-1:user',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Inspect the file' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:00.000Z'
+      },
+      {
+        id: 'db-assistant-1',
+        session_id: 'session-1',
+        role: 'assistant',
+        content: 'Done',
+        opencode_message_id: 'turn-1:assistant',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Done' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-03-14T10:00:10.000Z'
+      }
+    ]
+
+    const activities: SessionActivity[] = [
+      {
+        id: 'activity-bash-read',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-read-1',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'Bash',
+        payload_json: JSON.stringify({
+          item: {
+            type: 'commandExecution',
+            command: `sed -n '10,40p' src/index.ts`,
+            commandActions: [
+              {
+                type: 'read',
+                command: `sed -n '10,40p' src/index.ts`,
+                name: 'index.ts',
+                path: 'src/index.ts'
+              }
+            ],
+            aggregatedOutput: 'ok'
+          }
+        }),
+        sequence: null,
+        created_at: '2026-03-14T10:00:05.000Z'
+      }
+    ]
+
+    const timeline = deriveCodexTimelineMessages(messages, activities)
+    const toolRow = timeline.find((message) => message.id === 'turn-1:tool:tool-read-1')
+
+    expect(
+      toolRow?.parts?.some(
+        (part) =>
+          part.type === 'tool_use' &&
+          part.toolUse?.name === 'Read' &&
+          part.toolUse?.input.file_path === 'src/index.ts'
+      )
+    ).toBe(true)
+  })
+
   it('projects persisted task activities into a single subtask row with the latest status', () => {
     const messages: SessionMessage[] = [
       {

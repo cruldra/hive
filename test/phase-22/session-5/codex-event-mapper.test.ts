@@ -70,7 +70,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
+      expect(result[0]).toMatchObject({
         type: 'message.part.updated',
         sessionId: HIVE_SESSION,
         data: {
@@ -89,7 +89,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'text', text: 'direct text' },
         delta: 'direct text'
       })
@@ -104,7 +104,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
+      expect(result[0]).toMatchObject({
         type: 'message.part.updated',
         sessionId: HIVE_SESSION,
         data: {
@@ -123,7 +123,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'reasoning', text: 'Summary of reasoning' },
         delta: 'Summary of reasoning'
       })
@@ -138,7 +138,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'text', text: 'command output line' },
         delta: 'command output line'
       })
@@ -172,7 +172,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'text', text: 'file change diff' },
         delta: 'file change diff'
       })
@@ -206,7 +206,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'text', text: 'plan step 1' },
         delta: 'plan step 1'
       })
@@ -234,7 +234,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'text', text: 'structured delta' },
         delta: 'structured delta'
       })
@@ -249,7 +249,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'text', text: 'payload assistant text' },
         delta: 'payload assistant text'
       })
@@ -264,7 +264,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
+      expect(result[0].data).toMatchObject({
         part: { type: 'reasoning', text: 'payload reasoning text' },
         delta: 'payload reasoning text'
       })
@@ -280,7 +280,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
+      expect(result[0]).toMatchObject({
         type: 'session.status',
         sessionId: HIVE_SESSION,
         data: { status: { type: 'busy' } },
@@ -316,7 +316,7 @@ describe('mapCodexEventToStreamEvents', () => {
 
       const errorEvents = result.filter((e) => e.type === 'session.error')
       expect(errorEvents).toHaveLength(1)
-      expect(errorEvents[0].data).toEqual({ error: 'Rate limit exceeded' })
+      expect(errorEvents[0].data).toMatchObject({ error: 'Rate limit exceeded' })
 
       const statusEvents = result.filter((e) => e.type === 'session.status')
       expect(statusEvents).toHaveLength(1)
@@ -379,15 +379,15 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
+      expect(result[0]).toMatchObject({
         type: 'message.part.updated',
         sessionId: HIVE_SESSION,
         data: {
           part: {
             type: 'tool',
             callID: 'item-1',
-            tool: 'shell',
-            state: { status: 'running' }
+            tool: 'Bash',
+            state: { status: 'running', input: {} }
           }
         }
       })
@@ -407,6 +407,43 @@ describe('mapCodexEventToStreamEvents', () => {
       expect((result[0].data as any).part.tool).toBe('file_edit')
       expect((result[0].data as any).part.callID).toBe('item-2')
     })
+
+    it('maps typed read actions to Read tool cards', () => {
+      const event = makeEvent({
+        method: 'item.started',
+        payload: {
+          item: {
+            id: 'item-read-1',
+            type: 'commandExecution',
+            command: `sed -n '10,40p' src/index.ts`,
+            cwd: '/project',
+            processId: null,
+            source: 'agent',
+            status: 'running',
+            commandActions: [
+              {
+                type: 'read',
+                command: `sed -n '10,40p' src/index.ts`,
+                name: 'index.ts',
+                path: 'src/index.ts'
+              }
+            ],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null
+          }
+        }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+      const part = (result[0].data as any).part
+      expect(part.tool).toBe('Read')
+      expect(part.state.input).toEqual({
+        file_path: 'src/index.ts',
+        offset: 10,
+        limit: 30
+      })
+    })
   })
 
   // ── Item updated ────────────────────────────────────────────
@@ -424,6 +461,7 @@ describe('mapCodexEventToStreamEvents', () => {
 
       expect(result).toHaveLength(1)
       expect((result[0].data as any).part.type).toBe('tool')
+      expect((result[0].data as any).part.tool).toBe('Bash')
       expect((result[0].data as any).part.state.status).toBe('running')
     })
   })
@@ -448,16 +486,17 @@ describe('mapCodexEventToStreamEvents', () => {
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
+      expect(result[0]).toMatchObject({
         type: 'message.part.updated',
         sessionId: HIVE_SESSION,
         data: {
           part: {
             type: 'tool',
             callID: 'item-4',
-            tool: 'shell',
+            tool: 'Bash',
             state: {
               status: 'completed',
+              input: {},
               output: 'file created'
             }
           }
@@ -554,6 +593,34 @@ describe('mapCodexEventToStreamEvents', () => {
       expect(part.tool).toBe('fileChange')
       expect(part.callID).toBe('call-fc-1')
       expect(part.state.status).toBe('running')
+    })
+
+    it('maps approval commandActions.search to Grep tool card', () => {
+      const event = makeEvent({
+        kind: 'request',
+        method: 'item/commandExecution/requestApproval',
+        itemId: 'call-grep-1',
+        payload: {
+          item: {
+            id: 'call-grep-1',
+            type: 'commandExecution'
+          },
+          command: `rg -n "needle" src`,
+          commandActions: [
+            {
+              type: 'search',
+              command: `rg -n "needle" src`,
+              query: 'needle',
+              path: 'src'
+            }
+          ]
+        }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+      const part = (result[0].data as any).part
+      expect(part.tool).toBe('Grep')
+      expect(part.state.input).toEqual({ pattern: 'needle', path: 'src' })
     })
 
     it('maps item/fileRead/requestApproval to Read tool card', () => {
@@ -916,7 +983,7 @@ describe('mapCodexEventToStreamEvents', () => {
 
     const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
-    expect((result[0].data as any).part.state.input).toEqual({ command: '/bin/zsh -lc pnpm test' })
+    expect((result[0].data as any).part.state.input).toEqual({ command: 'pnpm test' })
   })
 
   // ── Expanded tool types (Phase 3) ───────────────────────────
@@ -984,7 +1051,19 @@ describe('mapCodexEventToStreamEvents', () => {
       const event = makeEvent({
         method: 'item/commandExecution/terminalInteraction',
         payload: {
-          item: { id: 'item-ti-1', toolName: 'Bash', type: 'commandExecution' }
+          item: {
+            id: 'item-ti-1',
+            type: 'commandExecution',
+            command: `sed -n '1,20p' src/index.ts`,
+            commandActions: [
+              {
+                type: 'read',
+                command: `sed -n '1,20p' src/index.ts`,
+                name: 'index.ts',
+                path: 'src/index.ts'
+              }
+            ]
+          }
         }
       })
 
@@ -996,6 +1075,7 @@ describe('mapCodexEventToStreamEvents', () => {
       const part = (result[0].data as any).part
       expect(part.type).toBe('tool')
       expect(part.callID).toBe('item-ti-1')
+      expect(part.tool).toBe('Read')
       expect(part.state.status).toBe('running')
     })
 

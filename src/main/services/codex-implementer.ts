@@ -17,8 +17,12 @@ import { asNumber, asObject, asString, toJsonSnapshot } from './codex-utils'
 import { logCodexLifecycleEvent } from './codex-debug-logger'
 import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
+import type { SessionMessageCreate } from '../db/types'
 import { autoRenameWorktreeBranch } from './git-service'
-import { normalizeCodexToolName, stripShellPrefix } from '@shared/codex-tool-normalizer'
+import {
+  normalizeCodexToolName,
+  normalizeCommandExecutionTool
+} from '@shared/codex-tool-normalizer'
 import type { UserInput } from '@shared/codex-schemas/v2/UserInput'
 import type { TurnStartParams } from '@shared/codex-schemas/v2/TurnStartParams'
 import type { ThreadNameUpdatedNotification } from '@shared/codex-schemas/v2/ThreadNameUpdatedNotification'
@@ -149,27 +153,15 @@ export function normalizeCodexMessageTimestamps<T extends { created_at: string }
 
 // ── Snapshot tool-call helpers ────────────────────────────────────
 
-function extractSnapshotToolCommand(itemObj: Record<string, unknown>): string | undefined {
-  const inputObj =
-    typeof itemObj.input === 'object' && itemObj.input !== null
-      ? (itemObj.input as Record<string, unknown>)
-      : undefined
-
-  const candidates = [itemObj.command, inputObj?.command, itemObj.cmd, inputObj?.cmd]
-
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return stripShellPrefix(candidate.trim())
-    }
-    if (Array.isArray(candidate)) {
-      const joined = candidate
-        .filter((entry): entry is string => typeof entry === 'string')
-        .join(' ')
-        .trim()
-      if (joined.length > 0) return stripShellPrefix(joined)
-    }
-  }
-  return undefined
+function buildSnapshotCommandExecutionTool(itemObj: Record<string, unknown>): {
+  toolName: string
+  input: Record<string, unknown>
+} {
+  return normalizeCommandExecutionTool({
+    command: itemObj.command ?? itemObj.cmd,
+    input: itemObj.input,
+    commandActions: Array.isArray(itemObj.commandActions) ? itemObj.commandActions : null
+  })
 }
 
 function buildSnapshotToolInput(itemObj: Record<string, unknown>): Record<string, unknown> {
@@ -177,12 +169,10 @@ function buildSnapshotToolInput(itemObj: Record<string, unknown>): Record<string
     typeof itemObj.input === 'object' && itemObj.input !== null && !Array.isArray(itemObj.input)
       ? (itemObj.input as Record<string, unknown>)
       : {}
-  const command = extractSnapshotToolCommand(itemObj)
   const changes = Array.isArray(itemObj.changes) ? itemObj.changes : undefined
 
   return {
     ...inputObj,
-    ...(command ? { command } : {}),
     ...(changes ? { changes } : {})
   }
 }
@@ -1642,7 +1632,8 @@ export class CodexImplementer implements AgentSdkImplementer {
     if (!this.dbService) return
 
     try {
-      const rows = session.messages.flatMap((message) => {
+      const rows: Array<SessionMessageCreate & { created_at: string }> = session.messages.flatMap(
+        (message) => {
         const record = asObject(message)
         if (!record) return []
 
@@ -1672,7 +1663,8 @@ export class CodexImplementer implements AgentSdkImplementer {
             created_at: timestamp
           }
         ]
-      })
+        }
+      )
 
       this.dbService.replaceSessionMessages(
         session.hiveSessionId,
@@ -1881,6 +1873,13 @@ export class CodexImplementer implements AgentSdkImplementer {
         toolUse: {
           ...(existingToolUse ?? {}),
           ...nextToolUse,
+          name:
+            (outputDelta !== undefined &&
+              nextToolUse.name === 'Bash' &&
+              typeof existingToolUse?.name === 'string' &&
+              existingToolUse.name !== 'Bash'
+              ? existingToolUse.name
+              : nextToolUse.name) ?? 'unknown',
           ...(accumulatedOutput !== undefined ? { output: accumulatedOutput } : {}),
           startTime:
             typeof existingToolUse?.startTime === 'number'
@@ -2022,7 +2021,13 @@ export class CodexImplementer implements AgentSdkImplementer {
       const appendedOutput = tool.state.outputDelta
         ? ((existing.state.output as string) ?? '') + String(tool.state.outputDelta)
         : undefined
-      existing.tool = tool.tool || existing.tool
+      existing.tool =
+        tool.state.outputDelta !== undefined &&
+        tool.tool === 'Bash' &&
+        existing.tool &&
+        existing.tool !== 'Bash'
+          ? existing.tool
+          : tool.tool || existing.tool
       existing.state = {
         ...existing.state,
         ...tool.state,
@@ -2357,7 +2362,13 @@ export class CodexImplementer implements AgentSdkImplementer {
     if (existingIndex !== undefined) {
       const existing = draft.parts[existingIndex]
       if (existing && existing.type === 'tool') {
-        existing.tool = tool.tool || existing.tool
+        existing.tool =
+          (tool.state as any).outputDelta !== undefined &&
+          tool.tool === 'Bash' &&
+          existing.tool &&
+          existing.tool !== 'Bash'
+            ? existing.tool
+            : tool.tool || existing.tool
         const appendedOutput = (tool.state as any).outputDelta
           ? ((existing.state.output as string) ?? '') + (tool.state as any).outputDelta
           : undefined
@@ -3044,10 +3055,14 @@ export class CodexImplementer implements AgentSdkImplementer {
           }
 
           if (itemType === 'commandExecution' || itemType === 'fileChange') {
-            const toolName = normalizeCodexToolName(
-              asString(itemObj.toolName) ?? asString(itemObj.name) ?? itemType
-            )
-            const input = buildSnapshotToolInput(itemObj)
+            const normalizedCommandTool =
+              itemType === 'commandExecution' ? buildSnapshotCommandExecutionTool(itemObj) : null
+            const toolName =
+              normalizedCommandTool?.toolName ??
+              normalizeCodexToolName(
+                asString(itemObj.toolName) ?? asString(itemObj.name) ?? itemType
+              )
+            const input = normalizedCommandTool?.input ?? buildSnapshotToolInput(itemObj)
             const output = itemObj.output ?? itemObj.aggregatedOutput
             const status = asString(itemObj.status)
 
