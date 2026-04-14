@@ -1438,6 +1438,7 @@ const opencodeOps = {
       supportsModelSelection: boolean
       supportsReconnect: boolean
       supportsPartialStreaming: boolean
+      supportsSteer: boolean
     }
     error?: string
   }> => ipcRenderer.invoke('opencode:capabilities', { sessionId: opencodeSessionId }),
