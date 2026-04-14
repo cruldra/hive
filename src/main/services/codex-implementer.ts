@@ -939,6 +939,53 @@ export class CodexImplementer implements AgentSdkImplementer {
     }
   }
 
+  async steer(
+    worktreePath: string,
+    agentSessionId: string,
+    message: string
+  ): Promise<{ steered: boolean; error?: string }> {
+    const key = this.getSessionKey(worktreePath, agentSessionId)
+    const session = this.sessions.get(key)
+    if (!session) {
+      log.warn('Steer: session not found', { worktreePath, agentSessionId })
+      return { steered: false, error: 'session_not_found' }
+    }
+
+    if (session.status !== 'running') {
+      log.warn('Steer: session not running', { worktreePath, agentSessionId, status: session.status })
+      return { steered: false, error: 'session_not_running' }
+    }
+
+    const activeTurnId = this.manager.getSession(session.threadId)?.activeTurnId
+    if (!activeTurnId) {
+      log.warn('Steer: no active turn', { worktreePath, agentSessionId, threadId: session.threadId })
+      return { steered: false, error: 'no_active_turn' }
+    }
+
+    try {
+      await this.manager.steerTurn(session.threadId, { text: message }, activeTurnId)
+
+      const syntheticTimestamp = new Date().toISOString()
+      session.messages.push({
+        id: `user-${randomUUID()}`,
+        role: 'user',
+        parts: [{ type: 'text', text: message, timestamp: syntheticTimestamp }],
+        timestamp: syntheticTimestamp
+      })
+      this.persistCanonicalMessages(session)
+
+      return { steered: true }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      log.error(
+        'Steer: steerTurn failed',
+        error instanceof Error ? error : new Error(errorMessage),
+        { worktreePath, agentSessionId, error: errorMessage }
+      )
+      return { steered: false, error: errorMessage }
+    }
+  }
+
   async abort(worktreePath: string, agentSessionId: string): Promise<boolean> {
     const key = this.getSessionKey(worktreePath, agentSessionId)
     const session = this.sessions.get(key)
