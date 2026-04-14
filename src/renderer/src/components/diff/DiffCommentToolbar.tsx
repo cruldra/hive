@@ -95,15 +95,16 @@ export function DiffCommentToolbar({
   // Attach-all logic
   // ---------------------------------------------------------------------------
 
-  const allAttached = sortedComments.length > 0 &&
-    sortedComments.every((c) => attachedCommentIds.has(c.id))
+  const nonOutdated = useMemo(() => sortedComments.filter((c) => !c.is_outdated), [sortedComments])
+  const allAttached = nonOutdated.length > 0 &&
+    nonOutdated.every((c) => attachedCommentIds.has(c.id))
 
   const handleAttachAll = useCallback(() => {
-    if (sortedComments.length > 20) {
+    if (nonOutdated.length > 20) {
       toast.warning('Attaching more than 20 comments may use significant context')
     }
     attachAllToChat(worktreeId)
-  }, [sortedComments.length, attachAllToChat, worktreeId])
+  }, [nonOutdated.length, attachAllToChat, worktreeId])
 
   // ---------------------------------------------------------------------------
   // Clear-all with AlertDialog

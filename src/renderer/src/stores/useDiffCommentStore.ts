@@ -311,7 +311,9 @@ export const useDiffCommentStore = create<DiffCommentStoreState>((set, get) => (
     set((s) => {
       const attachedCommentIds = new Set(s.attachedCommentIds)
       for (const c of bucket) {
-        attachedCommentIds.add(c.id)
+        if (!c.is_outdated) {
+          attachedCommentIds.add(c.id)
+        }
       }
       return { attachedCommentIds }
     })
