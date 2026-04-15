@@ -43,30 +43,27 @@ export const useTerminalTabStore = create<TerminalTabState>((set, get) => ({
   tabCounterByWorktree: new Map(),
 
   createTab: (worktreeId: string): string => {
-    const state = get()
-    const currentCount = state.tabCounterByWorktree.get(worktreeId) ?? 0
-    const counter = currentCount + 1
-    const tabId = `${worktreeId}::tab-${counter}`
-
-    const existingTabs = state.tabsByWorktree.get(worktreeId) ?? []
-    if (existingTabs.length >= TAB_SOFT_LIMIT) {
-      toast.warning(
-        'You have many terminal tabs open. Consider closing unused ones.'
-      )
-    }
-
-    const newTab: TerminalTab = {
-      id: tabId,
-      worktreeId,
-      name: `Terminal ${counter}`,
-      status: 'creating',
-      createdAt: Date.now()
-    }
+    // Compute counter, tabId, and newTab INSIDE set() to avoid TOCTOU races.
+    // Two rapid calls (e.g. double-click, or auto-create racing with user click)
+    // would otherwise read the same counter from get() and produce duplicate IDs.
+    let tabId = ''
 
     set((state) => {
       const tabsByWorktree = new Map(state.tabsByWorktree)
       const activeTabByWorktree = new Map(state.activeTabByWorktree)
       const tabCounterByWorktree = new Map(state.tabCounterByWorktree)
+
+      const currentCount = tabCounterByWorktree.get(worktreeId) ?? 0
+      const counter = currentCount + 1
+      tabId = `${worktreeId}::tab-${counter}`
+
+      const newTab: TerminalTab = {
+        id: tabId,
+        worktreeId,
+        name: `Terminal ${counter}`,
+        status: 'creating',
+        createdAt: Date.now()
+      }
 
       const tabs = [...(tabsByWorktree.get(worktreeId) ?? []), newTab]
       tabsByWorktree.set(worktreeId, tabs)
@@ -75,6 +72,14 @@ export const useTerminalTabStore = create<TerminalTabState>((set, get) => ({
 
       return { tabsByWorktree, activeTabByWorktree, tabCounterByWorktree }
     })
+
+    // Toast after set() so the tab count reflects the just-created tab
+    const tabCount = get().tabsByWorktree.get(worktreeId)?.length ?? 0
+    if (tabCount >= TAB_SOFT_LIMIT) {
+      toast.warning(
+        'You have many terminal tabs open. Consider closing unused ones.'
+      )
+    }
 
     return tabId
   },
