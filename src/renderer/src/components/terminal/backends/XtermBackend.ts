@@ -113,6 +113,9 @@ function isAppShortcut(e: KeyboardEvent): boolean {
   if (e.metaKey && e.shiftKey && e.key === 'P') return true
   if (e.metaKey && (e.key === '[' || e.key === ']')) return true
 
+  // Ctrl+Tab / Ctrl+Shift+Tab — terminal tab cycling handled by the app
+  if (e.ctrlKey && e.key === 'Tab') return true
+
   return false
 }
 
