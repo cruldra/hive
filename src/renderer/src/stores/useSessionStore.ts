@@ -914,7 +914,8 @@ export const useSessionStore = create<SessionState>()(
         set({
           activeWorktreeId: worktreeId,
           activeConnectionId: null,
-          inlineConnectionSessionId: null
+          inlineConnectionSessionId: null,
+          activeBoardAssistantProjectId: null
         })
 
         if (worktreeId) {
@@ -1065,6 +1066,9 @@ export const useSessionStore = create<SessionState>()(
           const found = sessions.find((s) => s.id === sessionId)
           if (found) return found
         }
+        for (const session of get().boardAssistantByProject.values()) {
+          if (session.id === sessionId) return session
+        }
         return null
       },
 
@@ -1075,9 +1079,18 @@ export const useSessionStore = create<SessionState>()(
       hydrateSession: (session: Session) => {
         // Already in store? Skip.
         if (get().getSessionById(session.id)) return
-        if (isBoardAssistantSessionName(session.name)) return
 
         set((state) => {
+          if (session.session_type === 'board-assistant') {
+            const newMap = new Map(state.boardAssistantByProject)
+            newMap.set(session.project_id, session)
+
+            const newModeMap = new Map(state.modeBySession)
+            newModeMap.set(session.id, session.mode || 'build')
+
+            return { boardAssistantByProject: newMap, modeBySession: newModeMap }
+          }
+
           if (session.worktree_id) {
             const newMap = new Map(state.sessionsByWorktree)
             const existing = newMap.get(session.worktree_id) || []
@@ -1300,6 +1313,14 @@ export const useSessionStore = create<SessionState>()(
             }
           }
         }
+        if (agentSdk === 'opencode') {
+          for (const session of get().boardAssistantByProject.values()) {
+            if (session.id === sessionId && session.agent_sdk) {
+              agentSdk = session.agent_sdk
+              break
+            }
+          }
+        }
 
         // Push to agent backend (SDK-aware) — skip for terminal sessions
         try {
@@ -1397,6 +1418,17 @@ export const useSessionStore = create<SessionState>()(
               newConnectionSessionsMap.set(connectionId, updatedSessions)
               return { sessionsByConnection: newConnectionSessionsMap }
             }
+          }
+
+          const newBoardAssistantMap = new Map(state.boardAssistantByProject)
+          for (const [projectId, session] of newBoardAssistantMap.entries()) {
+            if (session.id !== sessionId) continue
+            updatedAny = true
+            newBoardAssistantMap.set(projectId, {
+              ...session,
+              opencode_session_id: opencodeSessionId
+            })
+            return { boardAssistantByProject: newBoardAssistantMap }
           }
 
           return {}
@@ -1542,12 +1574,14 @@ export const useSessionStore = create<SessionState>()(
           const session = await window.db.session.getActiveBoardAssistant(projectId)
           set((state) => {
             const map = new Map(state.boardAssistantByProject)
+            const newModeMap = new Map(state.modeBySession)
             if (session) {
               map.set(projectId, session)
+              newModeMap.set(session.id, session.mode || 'build')
             } else {
               map.delete(projectId)
             }
-            return { boardAssistantByProject: map }
+            return { boardAssistantByProject: map, modeBySession: newModeMap }
           })
         } catch {
           // Non-fatal: board assistant tab won't show until next load
@@ -1573,9 +1607,12 @@ export const useSessionStore = create<SessionState>()(
 
           set((state) => {
             const map = new Map(state.boardAssistantByProject)
+            const newModeMap = new Map(state.modeBySession)
             map.set(projectId, session)
+            newModeMap.set(session.id, session.mode || 'build')
             return {
               boardAssistantByProject: map,
+              modeBySession: newModeMap,
               activeBoardAssistantProjectId: projectId,
               // Clear other active states so the board assistant view shows
               activeSessionId: null,
@@ -1596,15 +1633,29 @@ export const useSessionStore = create<SessionState>()(
       closeBoardAssistantSession: async (projectId: string) => {
         try {
           const session = get().boardAssistantByProject.get(projectId)
-          if (!session) return { success: false, error: 'No board assistant session found' }
+          if (!session) {
+            // Clear stale focus/map state so the UI doesn't get stuck
+            set((state) => {
+              const map = new Map(state.boardAssistantByProject)
+              map.delete(projectId)
+              return {
+                boardAssistantByProject: map,
+                activeBoardAssistantProjectId:
+                  state.activeBoardAssistantProjectId === projectId
+                    ? null
+                    : state.activeBoardAssistantProjectId
+              }
+            })
+            return { success: true }
+          }
 
           // Clean up the runtime BEFORE updating store state.
           // We must do this here rather than relying on component unmount,
           // because the BoardAssistantView may not be mounted (e.g. user
           // switched to a file tab and then closed the board assistant tab).
           const { useBoardChatStore } = await import('./useBoardChatStore')
-          const chatState = useBoardChatStore.getState()
-          if (chatState.sessionId === session.id) {
+          const chatSession = useBoardChatStore.getState().getSessionSnapshot(session.id)
+          if (chatSession) {
             const { useQuestionStore } = await import('./useQuestionStore')
             const { usePermissionStore } = await import('./usePermissionStore')
             const { useCommandApprovalStore } = await import('./useCommandApprovalStore')
@@ -1613,21 +1664,27 @@ export const useSessionStore = create<SessionState>()(
             usePermissionStore.getState().clearSession(session.id)
             useCommandApprovalStore.getState().clearSession(session.id)
 
-            if (chatState.runtimePath && chatState.opencodeSessionId) {
+            if (chatSession.snapshot.runtimePath && chatSession.snapshot.opencodeSessionId) {
               try {
-                await window.opencodeOps.abort(chatState.runtimePath, chatState.opencodeSessionId)
+                await window.opencodeOps.abort(
+                  chatSession.snapshot.runtimePath,
+                  chatSession.snapshot.opencodeSessionId
+                )
               } catch {
                 // Best-effort cleanup
               }
               try {
-                await window.opencodeOps.disconnect(chatState.runtimePath, chatState.opencodeSessionId)
+                await window.opencodeOps.disconnect(
+                  chatSession.snapshot.runtimePath,
+                  chatSession.snapshot.opencodeSessionId
+                )
               } catch {
                 // Best-effort cleanup
               }
             }
 
-            useBoardChatStore.getState().resetState()
           }
+          useBoardChatStore.getState().clearProjectSnapshot(projectId)
 
           await window.db.session.update(session.id, {
             status: 'completed',

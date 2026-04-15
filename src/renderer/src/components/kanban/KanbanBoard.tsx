@@ -32,7 +32,12 @@ export function KanbanBoard({ projectId, projectPath, connectionId, isPinnedMode
   const getConnectionProjectIds = useKanbanStore((state) => state.getConnectionProjectIds)
   const getPinnedProjectIdsArray = useKanbanStore((state) => state.getPinnedProjectIdsArray)
   const pinnedProjectIds = usePinnedStore((state) => state.pinnedProjectIds)
-  const boardChatStatus = useBoardChatStore((state) => state.status)
+  const boardChatStatus = useBoardChatStore((state) => {
+    if (!projectId) return 'idle'
+    const key = `project:${projectId}`
+    if (state.activeScopeKey === key) return state.status
+    return state.snapshots[key]?.status ?? 'idle'
+  })
   const boardAssistantByProject = useSessionStore((state) => state.boardAssistantByProject)
   const createBoardAssistantSession = useSessionStore((s) => s.createBoardAssistantSession)
   const focusBoardAssistantSession = useSessionStore((s) => s.focusBoardAssistantSession)

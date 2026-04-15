@@ -28,9 +28,10 @@ import { useKanbanStore } from '@/stores/useKanbanStore'
 import { usePermissionStore } from '@/stores/usePermissionStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useQuestionStore, type QuestionAnswer } from '@/stores/useQuestionStore'
+import { useSessionStore, BOARD_TAB_ID } from '@/stores/useSessionStore'
 import { useSettingsStore, type SelectedModel } from '@/stores/useSettingsStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
-// Session store no longer needed for name prefix — session_type column is used instead
+import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import type { StreamingPart } from '@/components/sessions/SessionView'
 import type { QuestionRequest } from '@/stores/useQuestionStore'
 import type { CommandApprovalRequest } from '@/stores/useCommandApprovalStore'
@@ -230,6 +231,7 @@ async function ensureRuntimeSession(scope: BoardChatScope, targetProjectId: stri
   const existingStoreSession = useSessionStore.getState().boardAssistantByProject.get(targetProjectId)
 
   let session: { id: string }
+  const isReused = Boolean(existingStoreSession)
   if (existingStoreSession) {
     session = existingStoreSession
     // Update the existing session with the model/SDK settings
@@ -264,10 +266,14 @@ async function ensureRuntimeSession(scope: BoardChatScope, targetProjectId: stri
 
   const connectResult = await window.opencodeOps.connect(runtimePath, session.id)
   if (!connectResult.success || !connectResult.sessionId) {
-    await window.db.session.delete(session.id).catch(() => {})
+    // Only delete the session if we just created it. Reused sessions
+    // should be kept so the user doesn't lose the record and messages.
+    if (!isReused) {
+      await window.db.session.delete(session.id).catch(() => {})
+    }
     // Re-sync store so the stale entry is removed and the tab disappears
     const { useSessionStore } = await import('@/stores/useSessionStore')
-    void useSessionStore.getState().loadBoardAssistantSession(targetProjectId)
+    await useSessionStore.getState().loadBoardAssistantSession(targetProjectId)
     return null
   }
 
@@ -295,8 +301,12 @@ async function cleanupBoardChatRuntime(): Promise<void> {
   const runtimePath = state.runtimePath
 
   // If the store has already been reset (e.g. closeBoardAssistantSession
-  // already cleaned up), there is nothing left to do.
-  if (!sessionId && !opencodeSessionId && !runtimePath) return
+  // already cleaned up), skip runtime teardown but still reset the store
+  // in case partial state remains.
+  if (!sessionId && !opencodeSessionId && !runtimePath) {
+    useBoardChatStore.getState().resetState()
+    return
+  }
 
   if (sessionId) {
     useQuestionStore.getState().clearSession(sessionId)
@@ -317,6 +327,10 @@ async function cleanupBoardChatRuntime(): Promise<void> {
       // Best effort cleanup.
     }
   }
+
+  // Always reset the chat store after full cleanup so callers don't
+  // need to remember to call resetState() separately.
+  useBoardChatStore.getState().resetState()
 }
 
 function BoardChatHeader({
@@ -777,7 +791,7 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
   const setDrafts = useBoardChatStore((state) => state.setDrafts)
   const clearDrafts = useBoardChatStore((state) => state.clearDrafts)
   const markDraftsCreated = useBoardChatStore((state) => state.markDraftsCreated)
-  const toggleDraftSelection = useBoardChatStore((state) => state.toggleDraftSelection)
+  const toggleDraftSelected = useBoardChatStore((state) => state.toggleDraftSelected)
   const setStatus = useBoardChatStore((state) => state.setStatus)
   const setSelectedTargetProjectId = useBoardChatStore((state) => state.setSelectedTargetProjectId)
   const setSelectedAgentSdkOverride = useBoardChatStore((state) => state.setSelectedAgentSdkOverride)
@@ -786,9 +800,8 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
   const updateOpencodeSessionId = useBoardChatStore((state) => state.updateOpencodeSessionId)
   const setComposerValue = useBoardChatStore((state) => state.setComposerValue)
   const resetState = useBoardChatStore((state) => state.resetState)
+  const activateScope = useBoardChatStore((state) => state.activateScope)
 
-  const latestScopeKey = buildScopeKey(scope)
-  const scopeSyncKeyRef = useRef<string>('')
   const composerFocusRef = useRef<HTMLTextAreaElement | null>(null)
   const availableAgentSdks = useSettingsStore((state) => state.availableAgentSdks)
   const defaultBoardAgentSdk = useSettingsStore((state) => resolveBoardChatAgentSdk(state.defaultAgentSdk))
@@ -816,13 +829,13 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
     let cancelled = false
 
     const syncScope = async (): Promise<void> => {
-      if (scopeSyncKeyRef.current === latestScopeKey) return
-      scopeSyncKeyRef.current = latestScopeKey
+      const scopeKey = buildScopeKey(scope)
+      const existingSnapshot =
+        scope?.kind === 'project'
+          ? useBoardChatStore.getState().getProjectSnapshot(scope.projectId)
+          : null
 
-      await cleanupBoardChatRuntime()
-      if (cancelled) return
-
-      resetState({
+      activateScope(scope, {
         preserveOpen: true,
         scope,
         selectedTargetProjectId:
@@ -833,7 +846,22 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
               : null
       })
 
-      if (scope && scope.kind !== 'pinned') {
+      if (cancelled) return
+
+      const state = useBoardChatStore.getState()
+      if (state.sessionId && state.opencodeSessionId && state.runtimePath && scopeKey !== 'none') {
+        try {
+          await window.opencodeOps.reconnect(
+            state.runtimePath,
+            state.opencodeSessionId,
+            state.sessionId
+          )
+        } catch {
+          // useSessionStream will handle reconnection failures
+        }
+      }
+
+      if (!existingSnapshot && scope && scope.kind !== 'pinned') {
         addLocalSystemMessage(
           scope.kind === 'project'
             ? `Assistant scope set to ${scope.projectName}.`
@@ -847,15 +875,15 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
     return () => {
       cancelled = true
     }
-  }, [addLocalSystemMessage, latestScopeKey, resetState, scope])
+  }, [activateScope, addLocalSystemMessage, scope])
 
-  useEffect(() => {
-    return () => {
-      void cleanupBoardChatRuntime()
-      useBoardChatStore.getState().resetState()
-      scopeSyncKeyRef.current = ''
-    }
-  }, [])
+  // NOTE: We intentionally do NOT clean up the runtime on unmount.
+  // The board assistant is a persistent tab — the runtime and chat state
+  // must survive across tab switches, just like normal sessions.
+  // Runtime cleanup happens only when:
+  // - The user explicitly closes the board assistant tab (closeBoardAssistantSession)
+  // - The scope changes to a different project (scope sync above)
+  // - The user clicks "Clear" (handleClear)
 
   const { messages: transcriptMessages, streamingParts, streamingContent, isStreaming } = useSessionStream({
     sessionId: sessionId ?? '',
@@ -867,6 +895,11 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
 
   useEffect(() => {
     if (!sessionId || !opencodeSessionId || !runtimePath) return
+    // useSessionStream starts with an empty array before getMessages() loads.
+    // Syncing that empty array would wipe all existing transcript messages from
+    // the store (mergeTranscriptMessages only keeps 'local'-kind messages when
+    // the transcript array is empty). Skip the sync until real data arrives.
+    if (transcriptMessages.length === 0 && useBoardChatStore.getState().messages.length > 0) return
     setTranscriptMessages(transcriptMessages)
   }, [opencodeSessionId, runtimePath, sessionId, setTranscriptMessages, transcriptMessages])
 
@@ -985,6 +1018,24 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
     status !== 'starting' &&
     status !== 'thinking'
 
+  const navigateToBoard = useCallback(() => {
+    useFileViewerStore.getState().clearActiveViews()
+
+    const sessionStore = useSessionStore.getState()
+    sessionStore.setActivePinnedSession(null)
+
+    if (useSettingsStore.getState().boardMode === 'sticky-tab') {
+      sessionStore.setActiveSession(BOARD_TAB_ID)
+      return
+    }
+
+    sessionStore.clearBoardAssistantFocus()
+    const kanbanStore = useKanbanStore.getState()
+    if (!kanbanStore.isBoardViewActive) {
+      kanbanStore.toggleBoardView()
+    }
+  }, [])
+
   const handleDiscardConversation = useCallback(
     async (options?: {
       preserveOpen?: boolean
@@ -1089,6 +1140,7 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
       addLocalSystemMessage(
         `Created ${result.tickets.length} ticket${result.tickets.length === 1 ? '' : 's'} and ${result.dependencies.length} dependenc${result.dependencies.length === 1 ? 'y' : 'ies'} in ${draftsToCreate[0].projectName}.`
       )
+      navigateToBoard()
       toast.success(
         `Created ${result.tickets.length} ticket${result.tickets.length === 1 ? '' : 's'}.`
       )
@@ -1096,7 +1148,7 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
       const message = error instanceof Error ? error.message : 'Failed to create one or more tickets.'
       toast.error(message)
     }
-  }, [addLocalSystemMessage, drafts, markDraftsCreated])
+  }, [addLocalSystemMessage, drafts, markDraftsCreated, navigateToBoard])
 
   const handleClear = useCallback(async () => {
     await handleDiscardConversation({ preserveOpen: true })
@@ -1263,7 +1315,7 @@ export function BoardAssistantView({ projectId }: BoardAssistantViewProps): Reac
         activePermission={activePermission}
         activeApproval={activeApproval}
         sessionId={sessionId}
-        onToggleDraft={toggleDraftSelection}
+        onToggleDraft={toggleDraftSelected}
         onCreateAll={() => {
           void handleCreateDrafts(false)
         }}

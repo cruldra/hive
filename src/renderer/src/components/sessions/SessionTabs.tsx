@@ -1152,17 +1152,21 @@ export function SessionTabs(): React.JSX.Element | null {
       {project && boardAssistantByProject.has(project.id) && (
         <button
           className={cn(
-            'group relative flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap border-r border-border min-w-0 max-w-[200px] transition-colors',
+            'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none whitespace-nowrap border-r border-border min-w-[100px] max-w-[200px] transition-colors',
             activeBoardAssistantProjectId === project.id && !isFileTabActive
               ? 'bg-background text-foreground'
-              : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+              : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
           )}
-          onClick={() => focusBoardAssistantSession(project.id)}
+          onClick={() => {
+            setActiveFile(null)
+            clearInlineConnectionSession()
+            focusBoardAssistantSession(project.id)
+          }}
           title="Board Assistant"
           data-testid="board-assistant-tab"
         >
           <KanbanIcon className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-          <span className="truncate">Board Assistant</span>
+          <span className="truncate flex-1">Board Assistant</span>
           {/* Active bottom accent */}
           {activeBoardAssistantProjectId === project.id && !isFileTabActive && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
