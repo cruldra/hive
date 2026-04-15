@@ -7,13 +7,13 @@ import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { ResizeHandle } from './ResizeHandle'
 import { FileSidebar } from '@/components/file-tree'
 import { BottomPanel } from './BottomPanel'
-import { TerminalManager } from '@/components/terminal/TerminalManager'
+import { useTerminalPortal } from '@/contexts/TerminalPortalContext'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 import { ErrorBoundary, ErrorFallback } from '@/components/error'
 
 export function RightSidebar(): React.JSX.Element {
   const { rightSidebarWidth, rightSidebarCollapsed, setRightSidebarWidth, toggleRightSidebar } =
     useLayoutStore()
-  const bottomPanelTab = useLayoutStore((s) => s.bottomPanelTab)
   const splitFractionByEntity = useLayoutStore((s) => s.splitFractionByEntity)
   const setSplitFraction = useLayoutStore((s) => s.setSplitFraction)
   const collapsedPanel = useLayoutStore((s) => s.collapsedPanel)
@@ -26,6 +26,9 @@ export function RightSidebar(): React.JSX.Element {
     s.selectedConnectionId ? s.connections.find((c) => c.id === s.selectedConnectionId) : null
   )
   const isConnectionMode = !!selectedConnectionId && !selectedWorktreeId
+
+  const { registerTarget } = useTerminalPortal()
+  const terminalPosition = useSettingsStore((s) => s.terminalPosition)
 
   const entityKey = selectedWorktreeId || selectedConnectionId
   const splitFraction = entityKey
@@ -77,26 +80,8 @@ export function RightSidebar(): React.JSX.Element {
     }
   }
 
-  // For connections, the effective tab is always 'terminal' since setup/run are worktree-specific
-  const effectiveBottomPanelTab = isConnectionMode ? 'terminal' : bottomPanelTab
-
-  // TerminalManager is always rendered (even when sidebar is collapsed) to preserve
-  // PTY state across sidebar collapse/expand and worktree switches.
-  const terminalManager = (
-    <TerminalManager
-      selectedWorktreeId={selectedWorktreeId}
-      worktreePath={selectedWorktreePath}
-      isVisible={!rightSidebarCollapsed && effectiveBottomPanelTab === 'terminal'}
-    />
-  )
-
   if (rightSidebarCollapsed) {
-    return (
-      <div data-testid="right-sidebar-collapsed">
-        {/* Keep TerminalManager alive when sidebar is collapsed so PTYs persist */}
-        <div className="hidden">{terminalManager}</div>
-      </div>
-    )
+    return <div data-testid="right-sidebar-collapsed" />
   }
 
   return (
@@ -164,7 +149,8 @@ export function RightSidebar(): React.JSX.Element {
           data-testid="right-sidebar-bottom"
         >
           <BottomPanel
-            terminalSlot={terminalManager}
+            terminalContainerRef={(el) => registerTarget('sidebar', el)}
+            terminalPosition={terminalPosition}
             isConnectionMode={isConnectionMode}
             isCollapsed={collapsedPanel === 'bottom'}
             onToggleCollapse={toggleBottomPanel}
