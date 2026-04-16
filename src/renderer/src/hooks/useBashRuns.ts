@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { toast } from '@/lib/toast'
 
 export interface BashRunView {
   id: string
@@ -81,7 +82,10 @@ export function useBashRuns(sessionId: string): {
 
   const runCommand = useCallback(
     async (command: string, cwd: string) => {
-      await window.bash.run(sessionId, command, cwd)
+      const result = await window.bash.run(sessionId, command, cwd)
+      if (!result.success) {
+        toast.error(result.error ?? 'Failed to run command')
+      }
     },
     [sessionId]
   )

@@ -30,10 +30,20 @@ export function registerBashHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('bash:abort', async (_event, sessionId: string) => {
     log.info('IPC: bash:abort', { sessionId })
-    return bashService.abort(sessionId)
+    try {
+      return await bashService.abort(sessionId)
+    } catch (error) {
+      log.error('IPC: bash:abort failed', { error })
+      return false
+    }
   })
 
   ipcMain.handle('bash:getRun', async (_event, sessionId: string) => {
-    return bashService.getRun(sessionId)
+    try {
+      return bashService.getRun(sessionId)
+    } catch (error) {
+      log.error('IPC: bash:getRun failed', { error })
+      return null
+    }
   })
 }
