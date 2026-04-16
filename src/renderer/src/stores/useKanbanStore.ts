@@ -497,23 +497,26 @@ export const useKanbanStore = create<KanbanState>()(
         try {
           await window.kanban.ticket.move(ticketId, column, sortOrder)
 
-          // When a ticket moves to done, check if any dependents can be auto-launched
-          if (column === 'done') {
+          // When a ticket moves to done (or review, if that's the trigger), check if any dependents can be auto-launched
+          const { useSettingsStore } = await import('./useSettingsStore')
+          const { isBlockerSatisfied } = await import('../lib/blocker-utils')
+          const triggerColumn = useSettingsStore.getState().followUpTriggerColumn
+          if (column === 'done' || (triggerColumn === 'review' && column === 'review' && movedTicket?.mode === 'build')) {
             const { dependencyMap, tickets: allTickets } = get()
             // Find tickets that list this ticket as a blocker
             for (const [depId, blockers] of dependencyMap) {
               if (!blockers.has(ticketId)) continue
-              // Check if ALL blockers of this dependent are now done
-              let allDone = true
+              // Check if ALL blockers of this dependent are now satisfied
+              let allSatisfied = true
               for (const bid of blockers) {
                 // Find the blocker ticket across all projects
                 for (const [, projTickets] of allTickets) {
                   const bt = projTickets.find(t => t.id === bid)
-                  if (bt && bt.column !== 'done') { allDone = false; break }
+                  if (bt && !isBlockerSatisfied(bt.column, bt.mode, triggerColumn)) { allSatisfied = false; break }
                 }
-                if (!allDone) break
+                if (!allSatisfied) break
               }
-              if (allDone) {
+              if (allSatisfied) {
                 // Find the dependent ticket and auto-launch if it has pending config
                 for (const [, projTickets] of allTickets) {
                   const depTicket = projTickets.find(t => t.id === depId)

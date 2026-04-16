@@ -47,6 +47,7 @@ import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useCommandApprovalStore } from '@/stores/useCommandApprovalStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
+import { isBlockerSatisfied } from '@/lib/blocker-utils'
 import { useGitStore } from '@/stores/useGitStore'
 import { notifyKanbanSessionSync } from '@/stores/store-coordination'
 import { messageSendTimes, lastSendMode, userExplicitSendTimes } from '@/lib/message-send-times'
@@ -819,6 +820,8 @@ function EditModeContent({
     onDirtyChange(isDirty)
   }, [isDirty, onDirtyChange])
 
+  const followUpTriggerColumn = useSettingsStore(s => s.followUpTriggerColumn)
+
   // ── Dependency selectors ──────────────────────────────────────────
   // useShallow prevents infinite re-render loops by doing shallow equality
   // comparison on the returned array instead of Object.is reference check.
@@ -1018,7 +1021,7 @@ function EditModeContent({
                 {blockerTickets.map(blocker => (
                   <div key={blocker.id} className="flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-muted/30">
                     <div className="flex items-center gap-2 min-w-0">
-                      {blocker.column === 'done' ? (
+                      {isBlockerSatisfied(blocker.column, blocker.mode, followUpTriggerColumn) ? (
                         <span className="text-green-500 text-xs">&#10003;</span>
                       ) : (
                         <Lock className="h-3 w-3 text-amber-500" />
