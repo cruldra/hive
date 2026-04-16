@@ -52,8 +52,13 @@ export function BottomPanel({
       ? tabs.filter((t) => t.id === 'terminal')
       : tabs.filter((t) => t.id !== 'terminal')   // sidebar: hide static terminal, use dynamic
 
-  // If terminal tab was active but is now hidden (moved to bottom panel), fall back
-  const resolvedTab = (terminalPosition === 'bottom' && effectiveTab === 'terminal') ? 'run' : effectiveTab
+  // If terminal tab was active but is now hidden, fall back to 'run':
+  // - bottom mode: terminal lives in the sidebar, not the bottom panel
+  // - sidebar mode without a worktree: dynamic terminal tabs can't render
+  const resolvedTab =
+    (terminalPosition === 'bottom' && effectiveTab === 'terminal') ? 'run' :
+    (terminalPosition === 'sidebar' && effectiveTab === 'terminal' && !selectedWorktreeId) ? 'run' :
+    effectiveTab
   useGhosttyPromotion(resolvedTab === 'terminal')
 
   // Open in Chrome state
@@ -99,7 +104,7 @@ export function BottomPanel({
   return (
     <div className="flex flex-col min-h-0 flex-1" data-testid="bottom-panel">
       <div className="flex border-b border-border" data-testid="bottom-panel-tabs">
-        <div className="flex overflow-x-auto scrollbar-hide min-w-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div className="flex overflow-x-auto scrollbar-hide min-w-0">
           {visibleTabs.map((tab) => (
             <button
               key={tab.id}
