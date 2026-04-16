@@ -4038,8 +4038,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const handleSend = useCallback(
     async (overrideValue?: string) => {
       // === BASH MODE ===
-      if (!overrideValue && inputValue.startsWith('!')) {
-        const command = inputValue.slice(1).trim()
+      if (!overrideValue && inputValueRef.current.startsWith('!')) {
+        const command = inputValueRef.current.slice(1).trim()
         if (!command || !worktreePath || isBashRunning || isStreaming) return
         setInputValue('')
         inputValueRef.current = ''
@@ -4557,8 +4557,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       resetAutoScrollState,
       stripAtMentions,
       isBashRunning,
-      runBashCommand,
-      inputValue
+      runBashCommand
     ]
   )
 
