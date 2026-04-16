@@ -4,6 +4,16 @@ import type { TerminalTab } from '@/stores/useTerminalTabStore'
 import { useTerminalStore } from '@/stores/useTerminalStore'
 import { useShallow } from 'zustand/react/shallow'
 
+/**
+ * Stable empty array to avoid infinite re-render loops in useShallow selectors.
+ *
+ * `useShallow` uses `Object.is` to compare each property of the selector result.
+ * An inline `?? []` creates a new array reference on every selector invocation,
+ * which `Object.is([]_prev, []_next)` considers different. During React's commit
+ * phase, `useSyncExternalStore` re-runs the selector for tearing detection — if
+ * the result is always "different" (due to unstable `[]`), it forces a synchronous
+ * re-render, which triggers another tearing check, creating an infinite loop.
+ */
 const EMPTY_TABS: TerminalTab[] = []
 
 export interface UseTerminalTabActionsReturn {
