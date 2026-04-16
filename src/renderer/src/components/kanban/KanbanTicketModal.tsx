@@ -12,8 +12,6 @@ import {
   ArrowRight,
   AlertCircle,
   Bolt,
-  Play,
-  Square,
   FileSearch,
   GitPullRequest,
   GitMerge,
@@ -55,7 +53,8 @@ import { snapshotTokenBaseline } from '@/lib/token-baselines'
 import { PLAN_MODE_PREFIX, getSuperPlanModePrefix, isPlanLike } from '@/lib/constants'
 import { buildSdkPlanImplementationPrompt } from '@/lib/proposedPlan'
 import { toast } from '@/lib/toast'
-import { useScriptStore, fireRunScript, killRunScript } from '@/stores/useScriptStore'
+import { useTicketRunScript, useTicketRunScriptHotkey, type TicketRunScriptState } from '@/hooks/useTicketRunScript'
+import { TicketRunButton } from './TicketRunButton'
 import { useQuestionStore, type QuestionRequest } from '@/stores/useQuestionStore'
 import { QuestionPrompt } from '@/components/sessions/QuestionPrompt'
 import { FollowupInput } from './FollowupInput'
@@ -343,6 +342,12 @@ function KanbanTicketModalContent({
   const moveTicket = useKanbanStore((s) => s.moveTicket)
   const [editDraftDirty, setEditDraftDirty] = useState(false)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
+
+  // ── Run script state (shared across all modal modes) ─────────────
+  // Hoisted here so the Cmd+R hotkey registers exactly once, and so each
+  // mode receives the same state object via props.
+  const runScriptState = useTicketRunScript(ticket)
+  useTicketRunScriptHotkey(runScriptState)
 
   // ── Session lookup ────────────────────────────────────────────────
   const sessionStatus = useSessionStore(
@@ -634,6 +639,7 @@ function KanbanTicketModalContent({
           onDirtyChange={setEditDraftDirty}
           updateTicket={updateTicket}
           deleteTicket={deleteTicket}
+          runScriptState={runScriptState}
         />
       )
       break
@@ -648,6 +654,7 @@ function KanbanTicketModalContent({
           dualPane={wantsDualPane}
           worktreePath={worktreePath}
           opcSessionId={opcSessionId}
+          runScriptState={runScriptState}
         />
       )
       break
@@ -659,11 +666,19 @@ function KanbanTicketModalContent({
           moveTicket={moveTicket}
           updateTicket={updateTicket}
           dualPane={wantsDualPane}
+          runScriptState={runScriptState}
         />
       )
       break
     case 'error':
-      modeContent = <ErrorModeContent ticket={ticket} onClose={forceClose} dualPane={wantsDualPane} />
+      modeContent = (
+        <ErrorModeContent
+          ticket={ticket}
+          onClose={forceClose}
+          dualPane={wantsDualPane}
+          runScriptState={runScriptState}
+        />
+      )
       break
     case 'question':
       modeContent = (
@@ -672,6 +687,7 @@ function KanbanTicketModalContent({
           onClose={forceClose}
           activeQuestion={activeQuestion!}
           dualPane={wantsDualPane}
+          runScriptState={runScriptState}
         />
       )
       break
@@ -697,12 +713,19 @@ function KanbanTicketModalContent({
               opencodeSessionId={opcSessionId!}
               title={ticket.title}
               headerAction={(
-                <JumpToSessionButton
-                  ticket={ticket}
-                  onClose={forceClose}
-                  label="Go to session"
-                  testId="go-to-session-btn"
-                />
+                <div className="flex items-center gap-2">
+                  <TicketRunButton
+                    state={runScriptState}
+                    testId="full-width-run-btn"
+                    className="h-7 px-2 text-xs"
+                  />
+                  <JumpToSessionButton
+                    ticket={ticket}
+                    onClose={forceClose}
+                    label="Go to session"
+                    testId="go-to-session-btn"
+                  />
+                </div>
               )}
               fullWidth
             />
@@ -788,7 +811,8 @@ function EditModeContent({
   onRequestClose,
   onDirtyChange,
   updateTicket,
-  deleteTicket
+  deleteTicket,
+  runScriptState
 }: {
   ticket: KanbanTicket
   onClose: () => void
@@ -796,6 +820,7 @@ function EditModeContent({
   onDirtyChange: (isDirty: boolean) => void
   updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
   deleteTicket: (ticketId: string, projectId: string) => Promise<void>
+  runScriptState: TicketRunScriptState
 }) {
   const [title, setTitle] = useState(ticket.title)
   const [description, setDescription] = useState(ticket.description ?? '')
@@ -1160,6 +1185,7 @@ function EditModeContent({
               Archive
             </Button>
           )}
+          <TicketRunButton state={runScriptState} testId="edit-run-btn" />
           <Button
             type="button"
             variant="outline"
@@ -1194,7 +1220,8 @@ function PlanReviewModeContent({
   updateTicket,
   dualPane = false,
   worktreePath,
-  opcSessionId
+  opcSessionId,
+  runScriptState
 }: {
   ticket: KanbanTicket
   onClose: () => void
@@ -1208,6 +1235,7 @@ function PlanReviewModeContent({
   dualPane?: boolean
   worktreePath: string | null
   opcSessionId: string | null
+  runScriptState: TicketRunScriptState
 }) {
   const [isActioning, setIsActioning] = useState(false)
   const [followUpText, setFollowUpText] = useState('')
@@ -1754,6 +1782,14 @@ function PlanReviewModeContent({
         </div>
       )}
 
+      {/* Run/Stop footer — always visible when the ticket has a worktree and
+          the project has a run_script, regardless of whether the plan has arrived. */}
+      {runScriptState.hasRunScript && (
+        <DialogFooter className="flex-shrink-0 gap-1.5 flex-wrap">
+          <TicketRunButton state={runScriptState} testId="plan-review-run-btn" />
+        </DialogFooter>
+      )}
+
       {/* Action buttons only visible when ExitPlanMode is awaiting approval
           (matches SessionView's showPlanReadyImplementFab gating on !!pendingPlan) */}
       {!!pendingPlan && (
@@ -1815,13 +1851,15 @@ function ReviewModeContent({
   onClose,
   moveTicket,
   updateTicket,
-  dualPane = false
+  dualPane = false,
+  runScriptState
 }: {
   ticket: KanbanTicket
   onClose: () => void
   moveTicket: (ticketId: string, projectId: string, column: 'todo' | 'in_progress' | 'review' | 'done', sortOrder: number) => Promise<void>
   updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
   dualPane?: boolean
+  runScriptState: TicketRunScriptState
 }) {
   const worktree = useMemo(
     () => (ticket.worktree_id ? findWorktreeById(ticket.worktree_id) : null),
@@ -1896,12 +1934,10 @@ function ReviewModeContent({
   // Display ticket description as context, with notice to view session for full conversation
   const reviewDescription = ticket.description ?? null
 
-  // ── Run-script state ───────────────────────────────────────────────
-  const project = useMemo(
-    () => useProjectStore.getState().projects.find((p) => p.id === ticket.project_id) ?? null,
-    [ticket.project_id]
-  )
-
+  // ── Resolve worktree for diff summary (base_branch lookup) ────────
+  // NOTE: Run-script state lives on `runScriptState` (hoisted at the parent).
+  // This effect is kept here because the diff summary below still needs the
+  // resolved worktree to read `base_branch`.
   useEffect(() => {
     let cancelled = false
 
@@ -1957,8 +1993,6 @@ function ReviewModeContent({
     }
   }, [ticket.project_id, ticket.worktree_id, resolvedWorktree])
 
-  const hasRunScript = !!project?.run_script && !!resolvedWorktree
-
   useEffect(() => {
     let cancelled = false
 
@@ -2007,10 +2041,6 @@ function ReviewModeContent({
       cleanup()
     }
   }, [dualPane, resolvedWorktree?.path, resolvedBaseBranch])
-
-  const runRunning = useScriptStore((s) =>
-    ticket.worktree_id ? (s.scriptStates[ticket.worktree_id]?.runRunning ?? false) : false
-  )
 
   const toggleMode = useCallback(() => {
     setFollowUpMode((prev) => prev === 'build' ? 'plan' : 'build')
@@ -2137,44 +2167,6 @@ function ReviewModeContent({
     }
   }, [ticket, moveTicket])
 
-  // ── Run / Stop handlers ────────────────────────────────────────────
-  const handleRunScript = useCallback(() => {
-    if (!ticket.worktree_id || !resolvedWorktree || !project?.run_script || runRunning) return
-    const commands = project.run_script
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#'))
-    fireRunScript(ticket.worktree_id, commands, resolvedWorktree.path)
-    toast.success('Run script started')
-  }, [ticket.worktree_id, resolvedWorktree, project, runRunning])
-
-  const handleStopScript = useCallback(async () => {
-    if (!ticket.worktree_id) return
-    await killRunScript(ticket.worktree_id)
-    toast.success('Run script stopped')
-  }, [ticket.worktree_id])
-
-  // Cmd+R / Ctrl+R toggles run/stop while the review modal is open
-  useEffect(() => {
-    if (!hasRunScript) return
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'r' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
-        const modal = document.querySelector('[data-testid="kanban-ticket-modal"]')
-        if (modal?.contains(document.activeElement)) {
-          e.preventDefault()
-          e.stopImmediatePropagation()
-          if (runRunning) {
-            handleStopScript()
-          } else {
-            handleRunScript()
-          }
-        }
-      }
-    }
-    window.addEventListener('keydown', handler, true) // capture phase
-    return () => window.removeEventListener('keydown', handler, true)
-  }, [hasRunScript, runRunning, handleRunScript, handleStopScript])
-
   return (
     <div ref={dropZoneRef} className="relative contents">
       <DialogHeader>
@@ -2258,23 +2250,7 @@ function ReviewModeContent({
         >
           Cancel
         </Button>
-        {hasRunScript && (
-          <Button
-            type="button"
-            variant="outline"
-            data-testid="review-run-btn"
-            onClick={runRunning ? handleStopScript : handleRunScript}
-            className={cn(
-              'gap-1.5',
-              runRunning
-                ? 'border-red-500/30 text-red-500 hover:bg-red-500/10'
-                : 'border-green-500/30 text-green-500 hover:bg-green-500/10'
-            )}
-          >
-            {runRunning ? <><Square className="h-3.5 w-3.5" /> Stop</> : <><Play className="h-3.5 w-3.5" /> Run</>}
-              <kbd className="ml-1 text-[10px] opacity-60 font-sans">⌘R</kbd>
-          </Button>
-        )}
+        <TicketRunButton state={runScriptState} testId="review-run-btn" />
         {ticket.worktree_id && (
           <Button
             type="button"
@@ -2373,11 +2349,13 @@ function ReviewModeContent({
 function ErrorModeContent({
   ticket,
   onClose,
-  dualPane = false
+  dualPane = false,
+  runScriptState
 }: {
   ticket: KanbanTicket
   onClose: () => void
   dualPane?: boolean
+  runScriptState: TicketRunScriptState
 }) {
   const [followUpText, setFollowUpText] = useState('')
   const [followUpMode, setFollowUpMode] = useState<FollowUpMode>('build')
@@ -2558,6 +2536,7 @@ function ErrorModeContent({
       )}
 
       <DialogFooter>
+        <TicketRunButton state={runScriptState} testId="error-run-btn" />
         <Button
           type="button"
           variant="outline"
@@ -2594,12 +2573,14 @@ function QuestionModeContent({
   ticket,
   onClose,
   activeQuestion,
-  dualPane = false
+  dualPane = false,
+  runScriptState
 }: {
   ticket: KanbanTicket
   onClose: () => void
   activeQuestion: QuestionRequest
   dualPane?: boolean
+  runScriptState: TicketRunScriptState
 }) {
   const handleReply = useCallback(async (requestId: string, answers: string[][]) => {
     try {
@@ -2654,7 +2635,14 @@ function QuestionModeContent({
           <DialogTitle className="flex items-center gap-2">
             Question from Agent
           </DialogTitle>
-          <JumpToSessionButton ticket={ticket} onClose={onClose} />
+          <div className="flex items-center gap-2">
+            <TicketRunButton
+              state={runScriptState}
+              testId="question-run-btn"
+              className="h-7 px-2 text-xs"
+            />
+            <JumpToSessionButton ticket={ticket} onClose={onClose} />
+          </div>
         </div>
         <DialogDescription>{dualPane ? 'An agent question needs your attention.' : ticket.title}</DialogDescription>
       </DialogHeader>
